@@ -34,23 +34,23 @@ import java.nio.file.Path;
 /**
  * 不可变且线程安全的 JSON 编解码器。
  *
- * <p>原始 {@link InputStream} 仅被借入，绝不关闭。{@link Path} 由此编解码器打开并关闭。
- * 对于高级 Jackson 操作，可通过 {@link #mapper()} 使用明确的逃生口。
+ * <p>原始 {@link InputStream} 仅被借入，绝不关闭；{@link Path} 由本编解码器打开并关闭。
+ * 需要高级 Jackson 操作时，可通过 {@link #mapper()} 拿到底层 mapper。
  */
 public final class JsonCodec {
 
     /**
-     * 使用默认 mapper 的进程级共享编解码器。
+     * 进程级共享的默认编解码器，随类加载初始化。
      */
     private static final JsonCodec DEFAULT = new JsonCodec(JsonMapperFactory.defaultMapper());
 
     /**
-     * 此编解码器使用的不可变 Jackson mapper。
+     * 底层的不可变 Jackson mapper。
      */
     private final ObjectMapper mapper;
 
     /**
-     * 使用指定的 mapper 创建编解码器。
+     * 以指定 mapper 创建编解码器。
      *
      * @param mapper 不可为 null 的 Jackson mapper
      */
@@ -59,14 +59,14 @@ public final class JsonCodec {
     }
 
     /**
-     * 返回急切初始化的确定性默认编解码器。
+     * 返回进程级共享的默认编解码器。
      */
     public static JsonCodec defaultCodec() {
         return DEFAULT;
     }
 
     /**
-     * 返回此编解码器使用的不可变 Jackson mapper。
+     * 返回底层不可变 Jackson mapper，供高级场景直接使用。
      */
     public ObjectMapper mapper() {
         return mapper;
@@ -77,6 +77,7 @@ public final class JsonCodec {
      *
      * @param value 待编码的值，可以为 null
      * @return JSON 文本
+     * @throws JsonException 编码失败时抛出
      */
     public String write(@Nullable Object value) {
         try {
@@ -91,6 +92,7 @@ public final class JsonCodec {
      *
      * @param value 待编码的值，可以为 null
      * @return 含缩进和换行的 JSON 文本
+     * @throws JsonException 编码失败时抛出
      */
     public String writePretty(@Nullable Object value) {
         try {
@@ -105,6 +107,7 @@ public final class JsonCodec {
      *
      * @param value 待编码的值，可以为 null
      * @return JSON 字节数组
+     * @throws JsonException 编码失败时抛出
      */
     public byte[] writeBytes(@Nullable Object value) {
         try {
@@ -115,12 +118,13 @@ public final class JsonCodec {
     }
 
     /**
-     * 将 JSON 文本反序列化为指定的原始类型。
+     * 将 JSON 文本反序列化为目标类型。
      *
      * @param content 非空 JSON 文本
      * @param type    目标类型
      * @param <T>     目标类型
      * @return 反序列化结果，永不为 null
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
      */
     public <T> T read(String content, Class<T> type) {
         ValidationUtils.requireNonNull(content, "content");
@@ -139,6 +143,7 @@ public final class JsonCodec {
      * @param type    保存泛型类型信息的类型引用
      * @param <T>     目标类型
      * @return 反序列化结果，永不为 null
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
      */
     public <T> T read(String content, TypeReference<T> type) {
         ValidationUtils.requireNonNull(content, "content");
@@ -156,6 +161,7 @@ public final class JsonCodec {
      * @param content 非空 JSON 文本
      * @param type    Jackson 目标类型模型
      * @return 反序列化结果，永不为 null
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
      */
     public Object read(String content, JavaType type) {
         ValidationUtils.requireNonNull(content, "content");
@@ -168,12 +174,13 @@ public final class JsonCodec {
     }
 
     /**
-     * 将 JSON 字节反序列化为指定的原始类型。
+     * 将 JSON 字节反序列化为目标类型。
      *
      * @param content 非空 JSON 字节
      * @param type    目标类型
      * @param <T>     目标类型
      * @return 反序列化结果，永不为 null
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
      */
     public <T> T read(byte[] content, Class<T> type) {
         ValidationUtils.requireNonNull(content, "content");
@@ -192,6 +199,7 @@ public final class JsonCodec {
      * @param type    保存泛型类型信息的类型引用
      * @param <T>     目标类型
      * @return 反序列化结果，永不为 null
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
      */
     public <T> T read(byte[] content, TypeReference<T> type) {
         ValidationUtils.requireNonNull(content, "content");
@@ -204,12 +212,13 @@ public final class JsonCodec {
     }
 
     /**
-     * 从借入的流中反序列化指定的原始类型，不会关闭调用方的流。
+     * 从借入的流反序列化为目标类型，不关闭该流。
      *
      * @param input 待读取的流
      * @param type  目标类型
      * @param <T>   目标类型
      * @return 反序列化结果，永不为 null
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
      */
     public <T> T read(InputStream input, Class<T> type) {
         ValidationUtils.requireNonNull(input, "input");
@@ -228,6 +237,7 @@ public final class JsonCodec {
      * @param type  保存泛型类型信息的类型引用
      * @param <T>   目标类型
      * @return 反序列化结果，永不为 null
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
      */
     public <T> T read(InputStream input, TypeReference<T> type) {
         ValidationUtils.requireNonNull(input, "input");
@@ -240,12 +250,13 @@ public final class JsonCodec {
     }
 
     /**
-     * 打开并关闭指定文件，然后反序列化为指定的原始类型。
+     * 打开并关闭指定文件，反序列化为目标类型。
      *
      * @param path JSON 文件路径
      * @param type 目标类型
      * @param <T>  目标类型
      * @return 反序列化结果，永不为 null
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
      */
     public <T> T read(Path path, Class<T> type) {
         ValidationUtils.requireNonNull(path, "path");
@@ -264,6 +275,7 @@ public final class JsonCodec {
      * @param type 保存泛型类型信息的类型引用
      * @param <T>  目标类型
      * @return 反序列化结果，永不为 null
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
      */
     public <T> T read(Path path, TypeReference<T> type) {
         ValidationUtils.requireNonNull(path, "path");
@@ -280,6 +292,7 @@ public final class JsonCodec {
      *
      * @param content 非空 JSON 文本
      * @return 根节点，永不为 null
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
      */
     public JsonNode readTree(String content) {
         ValidationUtils.requireNonNull(content, "content");
@@ -291,10 +304,11 @@ public final class JsonCodec {
     }
 
     /**
-     * 从借入的流中读取树模型，且不会关闭该流。
+     * 从借入的流读取树模型，不关闭该流。
      *
      * @param input 待读取的流
      * @return 根节点，永不为 null
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
      */
     public JsonNode readTree(InputStream input) {
         ValidationUtils.requireNonNull(input, "input");
@@ -308,22 +322,23 @@ public final class JsonCodec {
     /**
      * 在内存中将 JSON 兼容值转换为指定类型。
      *
-     * @param value 待转换的值，可以为 null
+     * @param value 待转换的值，为 null 时抛 {@link JsonException}（null 不携带类型信息，无转换语义）
      * @param type  目标类型
      * @param <T>   目标类型
      * @return 转换结果，永不为 null
+     * @throws JsonException 值为 null、值与目标类型不兼容或转换失败时抛出
      */
     public <T> T convert(@Nullable Object value, Class<T> type) {
         ValidationUtils.requireNonNull(type, "type");
         try {
             return requireDocumentValue(mapper.convertValue(value, type));
         } catch (Exception exception) {
-            throw new JsonException("Failed to convert JSON-compatible value", exception);
+            throw wrappingFailure(exception, "Failed to convert JSON-compatible value");
         }
     }
 
     /**
-     * 创建属于此 mapper 配置的空对象节点。
+     * 创建空对象节点。
      *
      * @return 新的对象节点
      */
@@ -332,7 +347,7 @@ public final class JsonCodec {
     }
 
     /**
-     * 创建属于此 mapper 配置的空数组节点。
+     * 创建空数组节点。
      *
      * @return 新的数组节点
      */
@@ -341,7 +356,7 @@ public final class JsonCodec {
     }
 
     /**
-     * 返回用于构造泛型 {@link JavaType} 的类型工厂。
+     * 返回类型工厂，用于构造泛型 {@link JavaType}。
      *
      * @return 此 mapper 的类型工厂
      */
@@ -366,13 +381,21 @@ public final class JsonCodec {
     }
 
     private static JsonException encodingFailure(Exception cause) {
-        return new JsonException("Failed to encode JSON", cause);
+        return wrappingFailure(cause, "Failed to encode JSON");
     }
 
     private static JsonException decodingFailure(Exception cause) {
+        return wrappingFailure(cause, "Failed to decode JSON");
+    }
+
+    /**
+     * 统一的异常出口：内部（如 requireDocumentValue）已抛出的 {@link JsonException} 携带精确语义，
+     * 原样透传避免被泛化消息二次包装；外部异常才包装为指定消息。
+     */
+    private static JsonException wrappingFailure(Exception cause, String message) {
         if (cause instanceof JsonException jsonException) {
             return jsonException;
         }
-        return new JsonException("Failed to decode JSON", cause);
+        return new JsonException(message, cause);
     }
 }

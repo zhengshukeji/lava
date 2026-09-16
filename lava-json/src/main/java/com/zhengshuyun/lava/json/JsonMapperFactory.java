@@ -34,7 +34,7 @@ import java.util.TimeZone;
 import java.util.function.Consumer;
 
 /**
- * 使用确定性的 Lava 默认配置创建不可变 Jackson 3 mapper。
+ * 按 Lava 默认约定创建不可变的 Jackson 3 mapper。
  */
 public final class JsonMapperFactory {
 
@@ -43,8 +43,8 @@ public final class JsonMapperFactory {
     }
 
     /**
-     * 使用 Jackson 原生 JSON 形态和 {@link Locale#ROOT} 创建 mapper。不注册全局自定义序列化器，
-     * 因而 long 值保持为 JSON number。
+     * 按默认约定创建 mapper：{@link Locale#ROOT}，不注册全局自定义序列化器，
+     * long 值保持为 JSON number。
      */
     public static ObjectMapper defaultMapper() {
         return builder().build();
@@ -60,7 +60,7 @@ public final class JsonMapperFactory {
     }
 
     /**
-     * 一次性 builder；{@link #build()} 返回的 mapper 不可变且线程安全。
+     * builder 本身无共享状态；{@link #build()} 返回的 mapper 不可变且线程安全。
      */
     public static final class Builder {
 
@@ -80,7 +80,7 @@ public final class JsonMapperFactory {
         private @Nullable String timePattern;
 
         /**
-         * 绝对时间类型使用的可选默认时区。
+         * 绝对时间类型的可选默认时区。
          */
         private @Nullable ZoneId zone;
 
@@ -169,7 +169,7 @@ public final class JsonMapperFactory {
         }
 
         /**
-         * 配置此工厂未建模的 Jackson 能力。
+         * 配置本工厂未覆盖到的 Jackson 能力。仅可设置一次，重复调用会替换先前回调。
          *
          * @param customizer 对底层 Jackson 构建器的配置回调
          * @return 当前构建器
@@ -185,18 +185,18 @@ public final class JsonMapperFactory {
          * @return 新的 mapper
          */
         public ObjectMapper build() {
-            JsonMapper.Builder mapper = JsonMapper.builder().defaultLocale(locale);
-            applyPattern(mapper, LocalDateTime.class, dateTimePattern);
-            applyPattern(mapper, LocalDate.class, datePattern);
-            applyPattern(mapper, LocalTime.class, timePattern);
+            JsonMapper.Builder builder = JsonMapper.builder().defaultLocale(locale);
+            applyPattern(builder, LocalDateTime.class, dateTimePattern);
+            applyPattern(builder, LocalDate.class, datePattern);
+            applyPattern(builder, LocalTime.class, timePattern);
             if (zone != null) {
-                mapper.defaultTimeZone(TimeZone.getTimeZone(zone));
+                builder.defaultTimeZone(TimeZone.getTimeZone(zone));
             }
-            mapper.addModules(List.copyOf(modules));
+            builder.addModules(List.copyOf(modules));
             if (customizer != null) {
-                customizer.accept(mapper);
+                customizer.accept(builder);
             }
-            return mapper.build();
+            return builder.build();
         }
 
         private static String requirePattern(String pattern, String name) {
@@ -204,9 +204,9 @@ public final class JsonMapperFactory {
         }
 
         private static void applyPattern(
-                JsonMapper.Builder mapper, Class<?> type, @Nullable String pattern) {
+                JsonMapper.Builder builder, Class<?> type, @Nullable String pattern) {
             if (pattern != null) {
-                mapper.withConfigOverride(
+                builder.withConfigOverride(
                         type,
                         override -> override.setFormat(JsonFormat.Value.forPattern(pattern)));
             }

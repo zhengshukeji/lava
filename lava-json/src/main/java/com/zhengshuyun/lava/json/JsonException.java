@@ -17,22 +17,22 @@
 package com.zhengshuyun.lava.json;
 
 /**
- * 表示确定性的 JSON 编码、解码或转换失败。
+ * 表示 JSON 编码、解码或转换失败。
  */
 public final class JsonException extends RuntimeException {
 
     /**
-     * 使用错误消息和根因创建 JSON 异常。
+     * 创建携带错误消息与根因的异常。
      *
      * @param message 错误消息
-     * @param cause   导致 JSON 操作失败的根因
+     * @param cause   失败根因
      */
     public JsonException(String message, Throwable cause) {
         super(message, cause);
     }
 
     /**
-     * 使用错误消息创建 JSON 异常。
+     * 创建携带错误消息的异常。
      *
      * @param message 错误消息
      */

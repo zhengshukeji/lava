@@ -15,10 +15,10 @@
  */
 
 /**
- * 基于不可变 JsonCodec 的 JSON 编解码与显式 Jackson 模块
+ * 基于不可变 JsonCodec 的 JSON 编解码，以及按需注册的 Jackson 模块。
  * <p>
- * 本包为 {@link org.jspecify.annotations.NullMarked} 作用域: 所有类型默认非空,
- * 可为 null 的位置显式标注 {@link org.jspecify.annotations.Nullable}.
+ * 本包为 {@link org.jspecify.annotations.NullMarked} 作用域：所有类型默认非空，
+ * 可为 null 的位置显式标注 {@link org.jspecify.annotations.Nullable}。
  */
 @NullMarked
 package com.zhengshuyun.lava.json;

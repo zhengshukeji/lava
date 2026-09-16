@@ -21,19 +21,16 @@ import tools.jackson.databind.module.SimpleModule;
 import java.util.OptionalLong;
 
 /**
- * 显式启用后将每个 {@code long}/{@link Long} 值序列化为 JSON string 的模块。
+ * 注册后把每个 {@code long}/{@link Long} 值序列化为 JSON string 的模块。
  *
- * <p>该规则不随数值大小变化，覆盖基本类型数组、装箱数组、集合、嵌套值和 {@link OptionalLong}。
- * 字段可通过下列注解显式保持为 number：
- * {@code @JsonFormat(shape = com.fasterxml.jackson.annotation.JsonFormat.Shape.NUMBER)}.
+ * <p>规则不随数值大小变化，覆盖装箱与基本类型、基本数组、装箱数组、集合、嵌套字段和
+ * {@link OptionalLong}；单个字段可用
+ * {@code @JsonFormat(shape = JsonFormat.Shape.NUMBER)} 覆盖回 number。
  */
 public final class LongAsStringModule extends SimpleModule {
 
     /**
-     * 创建固定的 long-as-string 模块。
-     *
-     * <p>注册后，long、long 数组和 {@link OptionalLong} 默认写为 JSON 字符串；
-     * 单个字段仍可使用 {@code @JsonFormat(shape = NUMBER)} 覆盖。
+     * 创建 long-as-string 模块。
      */
     public LongAsStringModule() {
         super(LongAsStringModule.class.getName());

@@ -22,19 +22,19 @@ import java.time.Duration;
 import java.util.random.RandomGenerator;
 
 /**
- * 计算一次可重试尝试结束后的延迟。
+ * 计算一次可重试尝试结束后的等待时长。
  *
- * <p>策略实现必须返回非负 {@link Duration}。仅带抖动的策略会使用 {@code random}；
- * 固定和无延迟策略会忽略它。
+ * <p>策略实现必须返回非负 {@link Duration}。只有带抖动的策略会用到 {@code random}，
+ * 固定和无延迟策略忽略它。
  */
 @FunctionalInterface
 public interface RetryDelayStrategy {
 
     /**
-     * 返回一次可重试尝试结束后的延迟。
+     * 返回一次可重试尝试结束后的等待时长。
      *
      * @param attempt 已完成的尝试序号，从 1 开始
-     * @param random  执行器拥有的随机数源
+     * @param random  执行器持有的随机数源
      * @return 下一次重试前的非负延迟
      */
     Duration delayAfter(int attempt, RandomGenerator random);
@@ -60,7 +60,7 @@ public interface RetryDelayStrategy {
     }
 
     /**
-     * 返回不带抖动且设有上限的指数退避延迟。
+     * 创建不带抖动、设有上限的指数退避策略。
      *
      * @param initialDelay 首次重试前的非负延迟
      * @param multiplier   每次重试的延迟倍率，至少为 1
@@ -72,8 +72,8 @@ public interface RetryDelayStrategy {
     }
 
     /**
-     * 返回带完全抖动且设有上限的指数退避：每次延迟都从
-     * {@code [0, min(maxDelay, initialDelay * multiplier^(attempt-1)))}.
+     * 创建带完全抖动、设有上限的指数退避策略：每次延迟在
+     * {@code [0, min(maxDelay, initialDelay * multiplier^(attempt-1)))} 区间内均匀随机取值。
      *
      * @param initialDelay 首次重试前的非负延迟
      * @param multiplier   每次重试的延迟倍率，至少为 1

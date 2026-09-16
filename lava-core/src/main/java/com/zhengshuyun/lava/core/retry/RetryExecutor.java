@@ -38,26 +38,26 @@ import java.util.random.RandomGenerator;
 public final class RetryExecutor {
 
     /**
-     * 仅供带抖动延迟策略使用的随机数源。
+     * 仅供带抖动的延迟策略使用的随机数源。
      */
     private final RandomGenerator random;
 
     /**
-     * 执行两次尝试之间等待操作的可替换边界。
+     * 两次尝试之间执行等待的可替换边界，供测试注入。
      */
     private final RetrySleeper sleeper;
 
     /**
-     * 使用线程本地随机数和 {@link Thread#sleep(Duration)} 创建执行器。
+     * 以线程本地随机数和 {@link Thread#sleep(Duration)} 创建执行器。
      *
-     * <p>随机数源只会被带抖动的延迟策略使用；固定延迟的实际等待时间不受其影响。
+     * <p>随机数源只会被带抖动的延迟策略用到；固定延迟的实际等待不受其影响。
      */
     public RetryExecutor() {
         this(ThreadLocalRandom.current(), Thread::sleep);
     }
 
     /**
-     * 创建具备确定性和可观测边界的执行器。
+     * 创建随机数与等待均可注入的执行器，便于构造确定性测试。
      *
      * @param random  用于抖动延迟的随机数源
      * @param sleeper 执行重试等待的休眠器
@@ -68,14 +68,14 @@ public final class RetryExecutor {
     }
 
     /**
-     * 执行可能抛出受检异常的 supplier。最终的受检异常会原样重新抛出。
-     * 被中断的操作绝不重试，并始终恢复中断标记。
+     * 执行可能抛受检异常的 supplier。重试耗尽后原样抛出最后一次异常。
+     * 被中断的操作绝不重试，且始终先恢复线程的中断标记。
      *
      * @param policy   重试策略
      * @param supplier 待执行的操作
      * @param <T>      操作结果类型
-     * @return 最后一次成功且不再重试的结果
-     * @throws Exception 操作最终失败或线程被中断时抛出
+     * @return 最后一次不再重试的成功结果
+     * @throws Exception 操作最终失败，或线程被中断
      */
     public <T> T execute(RetryPolicy<T> policy, CheckedSupplier<? extends T> supplier)
             throws Exception {
@@ -123,14 +123,14 @@ public final class RetryExecutor {
     }
 
     /**
-     * 使用 {@code Void} 策略执行可能抛出受检异常的 runnable。
+     * 执行可能抛受检异常的 runnable。
      *
-     * <p>操作正常结束后立即返回，不会调用 {@link RetryPolicy.Builder#retryOnResult}；
-     * 因此此方法只会因异常而重试。
+     * <p>成功即返回，不涉及 {@link RetryPolicy.Builder#retryOnResult}——{@code Void} 没有
+     * 可判断的结果，本方法只按异常决定是否重试。
      *
      * @param policy   重试策略
      * @param runnable 待执行的操作
-     * @throws Exception 操作最终失败或线程被中断时抛出
+     * @throws Exception 操作最终失败，或线程被中断
      */
     public void run(RetryPolicy<Void> policy, CheckedRunnable runnable) throws Exception {
         ValidationUtils.requireNonNull(policy, "policy");

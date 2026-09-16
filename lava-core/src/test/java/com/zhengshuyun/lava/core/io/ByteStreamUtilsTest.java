@@ -21,6 +21,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -76,6 +77,24 @@ class ByteStreamUtilsTest {
                 new ByteArrayInputStream(new byte[]{1}), new ByteArrayOutputStream(), 0));
         assertThrows(IllegalArgumentException.class, () -> ByteStreamUtils.copyWithLimit(
                 new ByteArrayInputStream(new byte[0]), new ByteArrayOutputStream(), -1));
+    }
+
+    @Test
+    void copyWithLimitFailsFastWhenStreamViolatesReadContract() {
+        // read(buf, off, len) 契约: len >= 1 时不应返回 0; 始终返回 0 的流若被无限容忍会永久自旋
+        InputStream stalled = new InputStream() {
+            @Override
+            public int read(byte[] buffer, int offset, int length) {
+                return 0;
+            }
+
+            @Override
+            public int read() {
+                return 0;
+            }
+        };
+        assertThrows(IOException.class,
+                () -> ByteStreamUtils.copyWithLimit(stalled, new ByteArrayOutputStream(), 16));
     }
 
     @Test

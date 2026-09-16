@@ -28,7 +28,6 @@ import java.util.Map;
  */
 public final class MapUtils {
 
-    /** 禁止实例化映射工具类。 */
     private MapUtils() {
         throw new UnsupportedOperationException("Utility class");
     }

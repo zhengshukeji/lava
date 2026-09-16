@@ -20,47 +20,47 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.ResolverStyle;
 
 /**
- * 可复用、不可变且严格的日期时间格式化器。
+ * 线程安全的常用日期时间格式化器，全部采用严格解析。
  */
 public final class DateTimeFormatterUtils {
 
     /**
-     * 严格解析和格式化 ISO 风格日期，格式为 {@code uuuu-MM-dd}。
+     * ISO 风格日期 {@code uuuu-MM-dd}，严格解析。
      */
     public static final DateTimeFormatter DATE = strict("uuuu-MM-dd");
 
     /**
-     * 严格解析和格式化 24 小时时间，格式为 {@code HH:mm:ss}。
+     * 24 小时制时间 {@code HH:mm:ss}，严格解析。
      */
     public static final DateTimeFormatter TIME = strict("HH:mm:ss");
 
     /**
-     * 严格解析和格式化空格分隔日期时间，格式为 {@code uuuu-MM-dd HH:mm:ss}。
+     * 空格分隔的日期时间 {@code uuuu-MM-dd HH:mm:ss}，严格解析。
      */
     public static final DateTimeFormatter DATE_TIME = strict("uuuu-MM-dd HH:mm:ss");
 
     /**
-     * 严格解析和格式化带毫秒的日期时间，格式为 {@code uuuu-MM-dd HH:mm:ss.SSS}。
+     * 带毫秒的日期时间 {@code uuuu-MM-dd HH:mm:ss.SSS}，严格解析。
      */
     public static final DateTimeFormatter DATE_TIME_MILLIS = strict("uuuu-MM-dd HH:mm:ss.SSS");
 
     /**
-     * 严格解析和格式化紧凑日期，格式为 {@code uuuuMMdd}。
+     * 紧凑日期 {@code uuuuMMdd}，严格解析。
      */
     public static final DateTimeFormatter COMPACT_DATE = strict("uuuuMMdd");
 
     /**
-     * 严格解析和格式化紧凑日期时间，格式为 {@code uuuuMMddHHmmss}。
+     * 紧凑日期时间 {@code uuuuMMddHHmmss}，严格解析。
      */
     public static final DateTimeFormatter COMPACT_DATE_TIME = strict("uuuuMMddHHmmss");
 
     /**
-     * 严格解析和格式化斜杠分隔日期，格式为 {@code uuuu/MM/dd}。
+     * 斜杠分隔的日期 {@code uuuu/MM/dd}，严格解析。
      */
     public static final DateTimeFormatter SLASH_DATE = strict("uuuu/MM/dd");
 
     /**
-     * 严格解析和格式化斜杠分隔日期时间，格式为 {@code uuuu/MM/dd HH:mm:ss}。
+     * 斜杠分隔的日期时间 {@code uuuu/MM/dd HH:mm:ss}，严格解析。
      */
     public static final DateTimeFormatter SLASH_DATE_TIME = strict("uuuu/MM/dd HH:mm:ss");
 

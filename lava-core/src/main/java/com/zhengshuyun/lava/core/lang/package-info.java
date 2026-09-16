@@ -17,7 +17,7 @@
 /**
  * 语言层工具：字符串与容器处理、前置校验和格式校验。
  * <p>
- * 本包为 {@link org.jspecify.annotations.NullMarked} 作用域: 所有类型默认非空,
+ * 本包为 {@link org.jspecify.annotations.NullMarked} 作用域：所有类型默认非空,
  * 可为 null 的位置显式标注 {@link org.jspecify.annotations.Nullable}.
  */
 @NullMarked

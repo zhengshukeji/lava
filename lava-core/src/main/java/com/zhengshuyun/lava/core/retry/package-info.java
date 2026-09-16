@@ -15,10 +15,10 @@
  */
 
 /**
- * 重试执行: 重试策略, 重试条件与监听
+ * 重试执行：重试策略、重试条件与监听。
  * <p>
- * 本包为 {@link org.jspecify.annotations.NullMarked} 作用域: 所有类型默认非空,
- * 可为 null 的位置显式标注 {@link org.jspecify.annotations.Nullable}.
+ * 本包为 {@link org.jspecify.annotations.NullMarked} 作用域：所有类型默认非空，
+ * 可为 null 的位置显式标注 {@link org.jspecify.annotations.Nullable}。
  */
 @NullMarked
 package com.zhengshuyun.lava.core.retry;

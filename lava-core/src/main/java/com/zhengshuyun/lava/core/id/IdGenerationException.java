@@ -17,14 +17,14 @@
 package com.zhengshuyun.lava.core.id;
 
 /**
- * 标识符生成器因运行状态异常而无法继续生成标识符时抛出。
+ * 生成器进入无法继续产出 ID 的异常状态时抛出，例如时钟回拨、序列耗尽或时间戳越界。
  */
 public final class IdGenerationException extends IllegalStateException {
 
     /**
-     * 使用指定错误消息创建异常。
+     * 创建携带失败原因的异常。
      *
-     * @param message 标识符生成失败的原因
+     * @param message ID 生成失败的具体原因
      */
     public IdGenerationException(String message) {
         super(message);

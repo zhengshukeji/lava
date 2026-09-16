@@ -22,16 +22,16 @@ import java.time.Clock;
 import java.time.Instant;
 
 /**
- * 使用显式工作节点标识的标准 64 位雪花算法生成器。
+ * 标准 64 位雪花算法 ID 生成器，工作节点标识由部署显式分配。
  *
- * <p>布局包含 1 个未使用的符号位、41 个时间戳位、10 个工作节点位和 12 个序列位。Lava epoch
- * 为 2026-01-01T00:00:00Z。时钟回拨和单毫秒序列耗尽都会立即失败；调用方可观测并告警，
- * 不会遭遇隐式等待。
+ * <p>位布局：1 个未使用的符号位、41 位时间戳、10 位工作节点、12 位序列，Lava epoch 为
+ * 2026-01-01T00:00:00Z。时钟回拨与单毫秒序列耗尽都会立即抛异常，让调用方第一时间感知并告警，
+ * 而不是被隐式等待掩盖。
  *
- * <p>{@code workerId} 必须由部署配置分配，且在所有实例间唯一、重启后稳定：两个实例复用同一个
- * {@code workerId} 会产出逐位相同的标识符序列。本类不提供默认值，因为该标识无法由主机名、IP 或
- * 进程号可靠推导——10 位仅有 1024 个取值，20 个实例哈希取值的碰撞概率已达 17%，而容器 IP 的
- * 低位熵远小于 10 位。推导默认值只会把启动期的显式失败换成运行期的静默重复标识。
+ * <p>{@code workerId} 必须由部署配置分配，在所有实例间唯一且重启后保持稳定——两个实例复用
+ * 同一个 {@code workerId} 会产出逐位相同的 ID 序列。本类刻意不提供默认值：10 位只有 1024 个
+ * 取值，20 个实例按哈希分配的碰撞概率已达 17%，容器 IP 的低位熵更是远小于 10 位，任何自动推导
+ * 都只是把启动期的显式失败换成运行期的静默重复 ID。
  */
 public final class SnowflakeIdGenerator {
 
@@ -52,18 +52,18 @@ public final class SnowflakeIdGenerator {
     private long sequence;
 
     /**
-     * 创建生成器。工作节点标识必须由部署配置明确分配。
+     * 创建生成器，工作节点标识须由部署配置显式分配。
      *
-     * @param workerId 工作节点标识，范围为 0 至 1023
+     * @param workerId 工作节点标识，取值 0 到 1023
      */
     public SnowflakeIdGenerator(int workerId) {
         this(workerId, Clock.systemUTC());
     }
 
     /**
-     * 使用显式时钟创建生成器，主要用于确定性测试。
+     * 创建生成器并指定时钟，主要供确定性测试使用。
      *
-     * @param workerId 工作节点标识，范围为 0 至 1023
+     * @param workerId 工作节点标识，取值 0 到 1023
      * @param clock    读取当前时间的时钟
      */
     public SnowflakeIdGenerator(int workerId, Clock clock) {
@@ -75,9 +75,9 @@ public final class SnowflakeIdGenerator {
     }
 
     /**
-     * 返回下一个雪花算法标识符。
+     * 返回下一个雪花 ID。
      *
-     * @return 新的非负雪花算法标识符
+     * @return 非负的雪花 ID
      */
     public synchronized long nextId() {
         long unixMillis = clock.millis();
@@ -109,16 +109,16 @@ public final class SnowflakeIdGenerator {
     }
 
     /**
-     * 以十进制且无精度损失地返回 {@link #nextId()}。
+     * 返回 {@link #nextId()} 的十进制字符串，字符串形式可避开 JSON/JS 侧的 53 位精度截断。
      *
-     * @return 新的雪花算法标识符的十进制字符串
+     * @return 新雪花 ID 的十进制字符串
      */
     public String nextIdString() {
         return Long.toString(nextId());
     }
 
     /**
-     * 返回此生成器的工作节点标识。
+     * 返回本生成器的工作节点标识。
      *
      * @return 工作节点标识
      */
@@ -127,10 +127,10 @@ public final class SnowflakeIdGenerator {
     }
 
     /**
-     * 从使用 Lava epoch 生成的标识符中提取原始时间戳。
+     * 从雪花 ID 还原生成时刻（要求该 ID 由 Lava epoch 位布局生成）。
      *
-     * @param id 非负雪花算法标识符
-     * @return 标识符包含的 UTC 时间戳
+     * @param id 非负雪花 ID
+     * @return ID 内嵌的 UTC 时间戳
      */
     public static Instant timestamp(long id) {
         if (id < 0) {

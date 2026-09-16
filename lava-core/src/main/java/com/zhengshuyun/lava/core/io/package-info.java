@@ -15,10 +15,10 @@
  */
 
 /**
- * IO 工具: 显式流所有权, 有界读取以及 IEC/SI 数据量格式化
+ * IO 工具：显式流所有权、有界读取以及 IEC/SI 数据量格式化。
  * <p>
- * 本包为 {@link org.jspecify.annotations.NullMarked} 作用域: 所有类型默认非空,
- * 可为 null 的位置显式标注 {@link org.jspecify.annotations.Nullable}.
+ * 本包为 {@link org.jspecify.annotations.NullMarked} 作用域：所有类型默认非空，
+ * 可为 null 的位置显式标注 {@link org.jspecify.annotations.Nullable}。
  */
 @NullMarked
 package com.zhengshuyun.lava.core.io;

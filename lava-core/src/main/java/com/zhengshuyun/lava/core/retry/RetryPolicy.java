@@ -32,7 +32,7 @@ public final class RetryPolicy<T> {
     private final int maxAttempts;
 
     /**
-     * 每次可重试尝试完成后计算等待时间的策略。
+     * 每次可重试尝试结束后计算等待时长的策略。
      */
     private final RetryDelayStrategy delayStrategy;
 
@@ -60,7 +60,7 @@ public final class RetryPolicy<T> {
     }
 
     /**
-     * 创建会重试每个 {@link Exception}、但不按成功结果重试的策略。
+     * 创建构建器：默认重试所有 {@link Exception}、不按成功结果重试。
      *
      * @param <T> 被执行操作的结果类型
      * @return 新的策略构建器
@@ -124,7 +124,6 @@ public final class RetryPolicy<T> {
          * 设置总尝试次数，包含首次调用。
          *
          * @param maxAttempts 总尝试次数，至少为 1
-         * @return 当前构建器
          */
         public Builder<T> maxAttempts(int maxAttempts) {
             if (maxAttempts < 1) {
@@ -138,7 +137,6 @@ public final class RetryPolicy<T> {
          * 设置每次重试前的延迟策略。
          *
          * @param delayStrategy 延迟计算策略
-         * @return 当前构建器
          */
         public Builder<T> delay(RetryDelayStrategy delayStrategy) {
             this.delayStrategy = ValidationUtils.requireNonNull(delayStrategy, "delayStrategy");
@@ -149,7 +147,6 @@ public final class RetryPolicy<T> {
          * 设置固定重试延迟。
          *
          * @param delay 每次重试前的延迟
-         * @return 当前构建器
          */
         public Builder<T> fixedDelay(Duration delay) {
             return delay(RetryDelayStrategy.fixed(delay));
@@ -161,7 +158,6 @@ public final class RetryPolicy<T> {
          * @param initialDelay 首次重试前的非负延迟
          * @param multiplier   每次重试的延迟倍率，至少为 1
          * @param maxDelay     延迟上限，不能小于初始延迟
-         * @return 当前构建器
          */
         public Builder<T> exponentialBackoff(
                 Duration initialDelay, double multiplier, Duration maxDelay) {
@@ -171,12 +167,11 @@ public final class RetryPolicy<T> {
         /**
          * 设置带完全抖动的指数退避延迟策略。
          *
-         * <p>每次延迟会在当前退避上限内随机取值，适合分散大量并发调用方的重试时间。
+         * <p>每次延迟在当前退避上限内随机取值，适合打散大量并发调用方的重试时机。
          *
          * @param initialDelay 首次重试前的非负延迟
          * @param multiplier   每次重试的延迟倍率，至少为 1
          * @param maxDelay     延迟上限，不能小于初始延迟
-         * @return 当前构建器
          */
         public Builder<T> exponentialBackoffWithFullJitter(
                 Duration initialDelay, double multiplier, Duration maxDelay) {
@@ -187,7 +182,6 @@ public final class RetryPolicy<T> {
          * 设置决定异常是否可重试的条件。
          *
          * @param condition 返回 true 时重试该异常
-         * @return 当前构建器
          */
         public Builder<T> retryOnException(Predicate<? super Exception> condition) {
             this.exceptionCondition = ValidationUtils.requireNonNull(condition, "condition");
@@ -198,7 +192,6 @@ public final class RetryPolicy<T> {
          * 设置指定异常类型及其子类型可重试。
          *
          * @param type 可重试的异常类型
-         * @return 当前构建器
          */
         public Builder<T> retryOnException(Class<? extends Exception> type) {
             ValidationUtils.requireNonNull(type, "type");
@@ -209,7 +202,6 @@ public final class RetryPolicy<T> {
          * 设置决定成功结果是否仍需重试的条件。
          *
          * @param condition 返回 true 时继续重试
-         * @return 当前构建器
          */
         public Builder<T> retryOnResult(Predicate<? super T> condition) {
             this.resultCondition = ValidationUtils.requireNonNull(condition, "condition");
@@ -220,7 +212,6 @@ public final class RetryPolicy<T> {
          * 设置每次尝试完成后接收状态的监听器。
          *
          * @param listener 尝试状态监听器
-         * @return 当前构建器
          */
         public Builder<T> listener(RetryListener<T> listener) {
             this.listener = ValidationUtils.requireNonNull(listener, "listener");

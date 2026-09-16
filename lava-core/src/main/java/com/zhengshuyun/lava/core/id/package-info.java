@@ -15,10 +15,10 @@
  */
 
 /**
- * ID 生成: 雪花算法与 UUID
+ * ID 生成：雪花算法与 UUID。
  * <p>
- * 本包为 {@link org.jspecify.annotations.NullMarked} 作用域: 所有类型默认非空,
- * 可为 null 的位置显式标注 {@link org.jspecify.annotations.Nullable}.
+ * 本包为 {@link org.jspecify.annotations.NullMarked} 作用域：所有类型默认非空，
+ * 可为 null 的位置显式标注 {@link org.jspecify.annotations.Nullable}。
  */
 @NullMarked
 package com.zhengshuyun.lava.core.id;

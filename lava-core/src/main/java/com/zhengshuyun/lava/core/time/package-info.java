@@ -15,10 +15,10 @@
  */
 
 /**
- * 时间工具: 严格解析, 不可变 DateTimeFormatter 与精确 Duration 格式化
+ * 时间工具：严格解析、不可变 DateTimeFormatter 与精确 Duration 格式化。
  * <p>
- * 本包为 {@link org.jspecify.annotations.NullMarked} 作用域: 所有类型默认非空,
- * 可为 null 的位置显式标注 {@link org.jspecify.annotations.Nullable}.
+ * 本包为 {@link org.jspecify.annotations.NullMarked} 作用域：所有类型默认非空，
+ * 可为 null 的位置显式标注 {@link org.jspecify.annotations.Nullable}。
  */
 @NullMarked
 package com.zhengshuyun.lava.core.time;

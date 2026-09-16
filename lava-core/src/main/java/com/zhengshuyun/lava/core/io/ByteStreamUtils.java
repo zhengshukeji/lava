@@ -29,7 +29,7 @@ import java.nio.file.OpenOption;
 import java.nio.file.Path;
 
 /**
- * 仅依赖 JDK 的字节流操作，明确资源所有权和内存分配上限。
+ * 仅依赖 JDK 的字节流工具，资源所有权与内存上限约定明确。
  */
 public final class ByteStreamUtils {
 
@@ -42,12 +42,12 @@ public final class ByteStreamUtils {
     }
 
     /**
-     * 从借入的输入流复制到借入的输出流。两个流都不会关闭，输出流也不会刷新。
+     * 从借入的输入流复制到借入的输出流；两个流都不关闭，输出流也不刷新。
      *
      * @param input  待读取的输入流
      * @param output 待写入的输出流
      * @return 已复制的字节数
-     * @throws IOException 读取或写入失败时抛出
+     * @throws IOException 读取或写入失败
      */
     public static long copy(InputStream input, OutputStream output) throws IOException {
         ValidationUtils.requireNonNull(input, "input");
@@ -56,22 +56,22 @@ public final class ByteStreamUtils {
     }
 
     /**
-     * 在大小上限内把借入输入流的全部内容复制到借入输出流。两个流都不会关闭，输出流也不会刷新。
+     * 在大小上限内把借入输入流的全部内容复制到借入输出流；两个流都不关闭，输出流也不刷新。
      *
-     * <p>只有读取到输入流结尾才能确认内容完整且未超限。已经复制 {@code maximumBytes}
-     * 字节时，方法会同步读取一个额外字节来区分“恰好达到上限”和“已经超过上限”；对于尚未
-     * 结束的长生命周期流，这次探测可能阻塞到新字节到达、输入结束或底层读取超时。
+     * <p>只有读到输入流结尾才能确认内容完整且未超限。复制满 {@code maximumBytes} 字节后，
+     * 方法会再同步读一个字节，以区分“恰好达到上限”和“已经超限”；对尚未结束的长生命周期流，
+     * 这次探测可能阻塞到新字节到达、流结束或底层读取超时。
      *
-     * <p>复制不是事务性操作。内容超限时，输出流已经写入 {@code maximumBytes} 字节，输入流
-     * 还会额外消费第 {@code maximumBytes + 1} 个字节，但该探测字节不会写入输出流。
+     * <p>复制不是事务性操作。内容超限时，输出流已写入 {@code maximumBytes} 字节，输入流也被
+     * 额外消费了第 {@code maximumBytes + 1} 个字节，但该探测字节不会写入输出流。
      *
      * @param input 待读取的输入流
      * @param output 待写入的输出流
      * @param maximumBytes 允许复制的最大字节数
      * @return 已复制的字节数
-     * @throws IllegalArgumentException 最大字节数为负数时抛出
-     * @throws SizeLimitExceededException 内容超过上限时抛出；此时输出和输入已发生上述变化
-     * @throws IOException 读取或写入失败时抛出
+     * @throws IllegalArgumentException 最大字节数为负数
+     * @throws SizeLimitExceededException 内容超过上限；抛出前输出与输入已发生上述变化
+     * @throws IOException 读取或写入失败
      */
     public static long copyWithLimit(InputStream input, OutputStream output, long maximumBytes)
             throws IOException {
@@ -88,7 +88,9 @@ public final class ByteStreamUtils {
                 return total;
             }
             if (read == 0) {
-                continue;
+                // read(buf, off, len) 契约规定仅 len == 0 时才可返回 0，而此处保证 len >= 1；
+                // 返回 0 说明流实现已违约，继续循环只会永久自旋，因此立即显式失败
+                throw new IOException("InputStream.read returned 0 while requested length > 0");
             }
             output.write(buffer, 0, read);
             total += read;
@@ -104,12 +106,12 @@ public final class ByteStreamUtils {
     }
 
     /**
-     * 打开并关闭源流；借入的输出流既不会关闭，也不会刷新。
+     * 打开源流并在复制后关闭；借入的输出流不关闭、不刷新。
      *
      * @param source 提供输入流的源
      * @param output 待写入的输出流
      * @return 已复制的字节数
-     * @throws IOException 打开、读取或写入失败时抛出
+     * @throws IOException 打开、读取或写入失败
      */
     public static long copy(InputStreamSource source, OutputStream output) throws IOException {
         ValidationUtils.requireNonNull(source, "source");
@@ -120,13 +122,13 @@ public final class ByteStreamUtils {
     }
 
     /**
-     * 打开并关闭由库创建的两个流。
+     * 打开并关闭两个由本方法创建的流。
      *
      * @param source  提供输入流的源
      * @param target  写入目标路径
      * @param options 打开目标文件的选项
      * @return 已复制的字节数
-     * @throws IOException 打开、读取或写入失败时抛出
+     * @throws IOException 打开、读取或写入失败
      */
     public static long copy(InputStreamSource source, Path target, OpenOption... options)
             throws IOException {
@@ -140,23 +142,23 @@ public final class ByteStreamUtils {
     }
 
     /**
-     * 以默认 16 MiB 上限读取借入的流，且不会关闭该流。
+     * 以默认 16 MiB 上限读取借入的流，不关闭该流。
      *
      * @param input 待读取的输入流
      * @return 完整字节内容
-     * @throws IOException 读取失败或内容超过上限时抛出
+     * @throws IOException 读取失败或内容超过上限
      */
     public static byte[] readAllBytes(InputStream input) throws IOException {
         return readAllBytes(input, DEFAULT_MAX_BYTES);
     }
 
     /**
-     * 读取借入的流，最大不超过 {@code maximumBytes}，且不会关闭该流。
+     * 读取借入的流，最多 {@code maximumBytes} 字节，不关闭该流。
      *
      * @param input        待读取的输入流
      * @param maximumBytes 允许读取的最大字节数
      * @return 完整字节内容
-     * @throws IOException 读取失败或内容超过上限时抛出
+     * @throws IOException 读取失败或内容超过上限
      */
     public static byte[] readAllBytes(InputStream input, long maximumBytes) throws IOException {
         ValidationUtils.requireNonNull(input, "input");
@@ -169,12 +171,12 @@ public final class ByteStreamUtils {
     }
 
     /**
-     * 有界读取后打开并关闭源流。
+     * 打开源流做有界读取并在结束后关闭。
      *
      * @param source       提供输入流的源
      * @param maximumBytes 允许读取的最大字节数
      * @return 完整字节内容
-     * @throws IOException 打开、读取失败或内容超过上限时抛出
+     * @throws IOException 打开、读取失败或内容超过上限
      */
     public static byte[] readAllBytes(InputStreamSource source, long maximumBytes)
             throws IOException {
@@ -185,24 +187,24 @@ public final class ByteStreamUtils {
     }
 
     /**
-     * 按默认上限读取后打开并关闭源流。
+     * 按默认上限读取源流并在结束后关闭。
      *
      * @param source 提供输入流的源
      * @return 完整字节内容
-     * @throws IOException 打开、读取失败或内容超过上限时抛出
+     * @throws IOException 打开、读取失败或内容超过上限
      */
     public static byte[] readAllBytes(InputStreamSource source) throws IOException {
         return readAllBytes(source, DEFAULT_MAX_BYTES);
     }
 
     /**
-     * 以指定字符集读取借入的输入流，且不会关闭该流。
+     * 按指定字符集读取借入的输入流并解码为文本，不关闭该流。
      *
      * @param input        待读取的输入流
      * @param charset      解码字符集
      * @param maximumBytes 允许读取的最大字节数
      * @return 解码后的文本
-     * @throws IOException 读取失败或内容超过上限时抛出
+     * @throws IOException 读取失败或内容超过上限
      */
     public static String readString(InputStream input, Charset charset, long maximumBytes)
             throws IOException {
@@ -211,13 +213,13 @@ public final class ByteStreamUtils {
     }
 
     /**
-     * 打开、读取并关闭源流，再以指定字符集解码。
+     * 打开、读取并关闭源流，再按指定字符集解码为文本。
      *
      * @param source       提供输入流的源
      * @param charset      解码字符集
      * @param maximumBytes 允许读取的最大字节数
      * @return 解码后的文本
-     * @throws IOException 打开、读取失败或内容超过上限时抛出
+     * @throws IOException 打开、读取失败或内容超过上限
      */
     public static String readString(InputStreamSource source, Charset charset, long maximumBytes)
             throws IOException {
@@ -226,12 +228,12 @@ public final class ByteStreamUtils {
     }
 
     /**
-     * 以 UTF-8 读取借入的输入流，且不会关闭该流。
+     * 按 UTF-8 读取借入的输入流并解码为文本，不关闭该流。
      *
      * @param input        待读取的输入流
      * @param maximumBytes 允许读取的最大字节数
      * @return 解码后的 UTF-8 文本
-     * @throws IOException 读取失败或内容超过上限时抛出
+     * @throws IOException 读取失败或内容超过上限
      */
     public static String readUtf8(InputStream input, long maximumBytes) throws IOException {
         return readString(input, StandardCharsets.UTF_8, maximumBytes);

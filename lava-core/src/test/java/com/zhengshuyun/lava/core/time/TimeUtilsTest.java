@@ -125,8 +125,8 @@ class TimeUtilsTest {
         assertNull(TimeUtils.parse("2026-01-01T 12:30:00"));
         assertNull(TimeUtils.parse("2026/01/01 T12:30:00"));
 
-        // 中文格式同理: 分隔符与时间部分绑定
+        // 中文格式例外: "年月日时分秒"本身即字面量分隔, 空格可省略, 两种写法等价
         assertEquals(DATE_TIME, TimeUtils.parse("2026年01月01日 12时30分00秒"));
-        assertNull(TimeUtils.parse("2026年01月01日12时30分00秒"));
+        assertEquals(DATE_TIME, TimeUtils.parse("2026年01月01日12时30分00秒"));
     }
 }

@@ -25,11 +25,11 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 时长格式化器
+ * 时长格式化器。
  * <p>
- * 不可变对象, 通过 {@link Builder} 构建, 可复用同一配置格式化不同 Duration.
+ * 不可变对象，通过 {@link Builder} 构建，同一实例可用同一配置反复格式化不同 Duration。
  * <p>
- * 示例:
+ * 示例：
  * <pre>{@code
  * DurationFormatter formatter = DurationFormatter.builder()
  *     .largestUnit(ChronoUnit.HOURS)
@@ -79,51 +79,32 @@ public final class DurationFormatter {
     }
 
     /**
-     * 创建 Builder 实例
+     * 创建 Builder 实例。
      *
-     * @return Builder 实例
-     */
+         */
     public static Builder builder() {
         return new Builder();
     }
 
     /**
-     * 格式化时长
+     * 格式化时长。
      *
-     * <p>Only exact {@link Duration} units from days through nanoseconds are supported. Calendar
-     * 有意不接受月和年，因为其长度依赖日期和时区。
+     * <p>只支持天到纳秒的精确时间单位；刻意不接受月和年，因为它们的长度取决于具体日期和时区。
      *
-     * @param duration 时长 (不能为 null 或负数)
+     * @param duration 待格式化的时长（不能为 null 或负数）
      * @return 格式化后的字符串
      */
     public String format(Duration duration) {
         ValidationUtils.requireNonNull(duration, "duration cannot be null");
         ValidationUtils.requireFalse(duration.isNegative(), "duration cannot be negative");
 
-        // 特殊处理: 只显示纳秒
-        if (largestUnit == ChronoUnit.NANOS && smallestUnit == ChronoUnit.NANOS) {
-            return duration.toNanos() + getUnitSuffix(ChronoUnit.NANOS);
-        }
-
-        // 特殊处理: 只显示微秒
-        if (largestUnit == ChronoUnit.MICROS && smallestUnit == ChronoUnit.MICROS) {
-            return duration.toNanos() / 1000 + getUnitSuffix(ChronoUnit.MICROS);
-        }
-
-        // 特殊处理: 只显示毫秒
-        if (largestUnit == ChronoUnit.MILLIS && smallestUnit == ChronoUnit.MILLIS) {
-            return duration.toMillis() + getUnitSuffix(ChronoUnit.MILLIS);
-        }
-
         List<String> parts = new ArrayList<>();
 
-        // 计算各个单位的值
         long totalSeconds = duration.toSeconds();
 
         long days = 0, hours = 0, minutes = 0, seconds = 0;
         long millis = 0, micros = 0, nanos = 0;
 
-        // 从大到小依次计算
         if (shouldInclude(ChronoUnit.DAYS)) {
             days = totalSeconds / (24 * 3600);
             totalSeconds %= (24 * 3600);
@@ -144,11 +125,9 @@ public final class DurationFormatter {
             totalSeconds = 0;
         }
 
-        // 计算毫秒/微秒/纳秒
-        // 如果 SECONDS 不在范围内, 需要将未消费的秒数转换为纳秒.
-        // 用 multiplyExact 而非裸乘: 当 largestUnit 为 MILLIS 及以下时 totalSeconds 是完整秒数,
-        // 超过约 292 年就会溢出. 溢出时抛 ArithmeticException, 与 NANOS 特例路径
-        // (duration.toNanos() 同样抛该异常) 行为一致, 而不是静默返回 "0ns"
+        // 如果 SECONDS 不在范围内，需要将未消费的秒数转换为纳秒。
+        // 用 multiplyExact 而非裸乘：当 largestUnit 为 MILLIS 及以下时 totalSeconds 是完整秒数,
+        // 超过约 292 年就会溢出. 溢出时抛 ArithmeticException, 而不是静默返回错误结果
         long remainingNanos = Math.addExact(
                 Math.multiplyExact(totalSeconds, 1_000_000_000L), duration.toNanosPart());
 
@@ -166,7 +145,6 @@ public final class DurationFormatter {
             nanos = remainingNanos;
         }
 
-        // 添加各个单位到结果
         addPart(parts, days, ChronoUnit.DAYS);
         addPart(parts, hours, ChronoUnit.HOURS);
         addPart(parts, minutes, ChronoUnit.MINUTES);
@@ -234,7 +212,7 @@ public final class DurationFormatter {
     }
 
     /**
-     * 时长格式化器构建器
+     * 时长格式化器构建器。
      *
      * @author Toint
      * @since 2026/1/11
@@ -242,27 +220,27 @@ public final class DurationFormatter {
     public static final class Builder {
 
         /**
-         * 最大单位 (默认: 小时)
+         * 最大单位（默认为小时）
          */
         private ChronoUnit largestUnit = ChronoUnit.HOURS;
 
         /**
-         * 最小单位 (默认: 秒)
+         * 最小单位（默认为秒）
          */
         private ChronoUnit smallestUnit = ChronoUnit.SECONDS;
 
         /**
-         * 语言环境 (默认: 英文)
+         * 语言环境（默认为英文）
          */
         private Locale locale = Locale.ENGLISH;
 
         /**
-         * 是否显示零值单位 (默认: false)
+         * 是否显示零值单位（默认为 false）
          */
         private boolean showZeroValues = false;
 
         /**
-         * 单位之间的分隔符 (默认: 空格)
+         * 单位之间的分隔符（默认为空格）
          */
         private String separator = " ";
 
@@ -270,10 +248,9 @@ public final class DurationFormatter {
         }
 
         /**
-         * 设置最大单位
+         * 设置最大单位。
          *
-         * @param largestUnit 最大单位 (DAYS/HOURS/MINUTES/SECONDS/MILLIS/MICROS/NANOS)
-         * @return 当前构建器
+         * @param largestUnit 最大单位（DAYS/HOURS/MINUTES/SECONDS/MILLIS/MICROS/NANOS）
          */
         public Builder largestUnit(ChronoUnit largestUnit) {
             this.largestUnit = ValidationUtils.requireNonNull(
@@ -282,10 +259,9 @@ public final class DurationFormatter {
         }
 
         /**
-         * 设置最小单位
+         * 设置最小单位。
          *
-         * @param smallestUnit 最小单位 (DAYS/HOURS/MINUTES/SECONDS/MILLIS/MICROS/NANOS)
-         * @return 当前构建器
+         * @param smallestUnit 最小单位（DAYS/HOURS/MINUTES/SECONDS/MILLIS/MICROS/NANOS）
          */
         public Builder smallestUnit(ChronoUnit smallestUnit) {
             this.smallestUnit = ValidationUtils.requireNonNull(
@@ -294,15 +270,14 @@ public final class DurationFormatter {
         }
 
         /**
-         * 设置单位范围
+         * 设置单位范围。
          * <p>
-         * 参数在此立即校验; 单独调用 {@link #largestUnit} / {@link #smallestUnit}
-         * 时无法在设值点判断区间方向, 由 {@link #build()} 兜底校验
+         * 参数在此立即校验；单独调用 {@link #largestUnit} / {@link #smallestUnit}
+         * 时无法在设值点判断区间方向，由 {@link #build()} 兜底校验。
          *
          * @param largestUnit  最大单位
          * @param smallestUnit 最小单位
-         * @return 当前构建器
-         * @throws IllegalArgumentException 如果 largestUnit &lt; smallestUnit 或单位不支持
+                 * @throws IllegalArgumentException 如果 largestUnit &lt; smallestUnit 或单位不支持
          */
         public Builder range(ChronoUnit largestUnit, ChronoUnit smallestUnit) {
             largestUnit(largestUnit).smallestUnit(smallestUnit);
@@ -311,29 +286,28 @@ public final class DurationFormatter {
         }
 
         /**
-         * 校验单位合法性与区间方向
+         * 校验单位合法性与区间方向。
          *
-         * @throws IllegalArgumentException 如果单位不受支持, 或 largestUnit &lt; smallestUnit
+         * @throws IllegalArgumentException 如果单位不受支持，或 largestUnit &lt; smallestUnit
          */
         private void validateRange() {
             int largestOrder = getUnitOrder(largestUnit);
             int smallestOrder = getUnitOrder(smallestUnit);
 
-            // 不受支持的单位 order 为 0, 会让 shouldInclude 的区间判断失去意义:
-            // largestUnit 非法时所有单位都被排除 (格式化结果恒为 "0"),
-            // smallestUnit 非法时所有单位都被包含 (整点时长会渲染出 "1h 5ns")
+            // 不受支持的单位 order 为 0，会让 shouldInclude 的区间判断失去意义：
+            // largestUnit 非法时所有单位都被排除（格式化结果恒为 "0"），
+            // smallestUnit 非法时所有单位都被包含（整点时长会渲染出 "1h 5ns"）
             ValidationUtils.requireTrue(largestOrder > 0 && smallestOrder > 0,
                     "Unsupported unit: only DAYS/HOURS/MINUTES/SECONDS/MILLIS/MICROS/NANOS are supported");
-            // 区间反向时没有任何单位落在范围内, 时长会被静默丢弃
+            // 区间反向时没有任何单位落在范围内，时长会被静默丢弃
             ValidationUtils.requireTrue(largestOrder >= smallestOrder,
                     "largestUnit must be >= smallestUnit");
         }
 
         /**
-         * 设置语言 (中文/英文等)
+         * 设置语言（中文、英文等）。
          *
          * @param locale 单位文本使用的区域设置
-         * @return 当前构建器
          */
         public Builder locale(Locale locale) {
             this.locale = ValidationUtils.requireNonNull(locale, "locale cannot be null");
@@ -341,28 +315,25 @@ public final class DurationFormatter {
         }
 
         /**
-         * 设置为中文。
+         * 单位文本使用中文。
          *
-         * @return 当前构建器
          */
         public Builder chinese() {
             return locale(Locale.CHINESE);
         }
 
         /**
-         * 设置为英文。
+         * 单位文本使用英文。
          *
-         * @return 当前构建器
          */
         public Builder english() {
             return locale(Locale.ENGLISH);
         }
 
         /**
-         * 设置是否显示零值单位
+         * 设置是否显示零值单位。
          *
-         * @param showZeroValues true: "1h 0m 30s", false: "1h 30s"
-         * @return 当前构建器
+         * @param showZeroValues true：如 "1h 0m 30s"；false：如 "1h 30s"
          */
         public Builder showZeroValues(boolean showZeroValues) {
             this.showZeroValues = showZeroValues;
@@ -373,7 +344,6 @@ public final class DurationFormatter {
          * 设置单位之间的分隔符。
          *
          * @param separator 单位文本之间使用的分隔符
-         * @return 当前构建器
          */
         public Builder separator(String separator) {
             this.separator = ValidationUtils.requireNonNull(
@@ -382,13 +352,13 @@ public final class DurationFormatter {
         }
 
         /**
-         * 构建 DurationFormatter 实例
+         * 构建 DurationFormatter 实例。
          * <p>
-         * 单位合法性与区间方向在此统一校验, 因此无论通过 {@link #range} 还是
-         * 单独调用 {@link #largestUnit} / {@link #smallestUnit} 都无法绕过
+         * 单位合法性与区间方向在此统一校验，因此无论通过 {@link #range} 还是单独
+         * 调用 {@link #largestUnit} / {@link #smallestUnit} 都无法绕过。
          *
          * @return 不可变的 DurationFormatter 实例
-         * @throws IllegalArgumentException 如果单位不受支持, 或 largestUnit &lt; smallestUnit
+         * @throws IllegalArgumentException 如果单位不受支持，或 largestUnit &lt; smallestUnit
          */
         public DurationFormatter build() {
             validateRange();

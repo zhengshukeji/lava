@@ -26,7 +26,6 @@ import org.jspecify.annotations.Nullable;
  */
 public final class StringUtils {
 
-    /** 禁止实例化字符串工具类。 */
     private StringUtils() {
         throw new UnsupportedOperationException("Utility class");
     }

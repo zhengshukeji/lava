@@ -42,7 +42,7 @@ public final class SizeLimitExceededException extends IOException {
     }
 
     /**
-     * 返回越过上限时观测到的流大小下界。
+     * 返回抛出异常时已观测到的流大小下界（真实大小至少为此值）。
      *
      * @return 已观测字节数的下界
      */

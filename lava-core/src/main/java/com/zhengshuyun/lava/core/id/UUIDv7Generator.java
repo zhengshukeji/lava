@@ -25,11 +25,11 @@ import java.util.UUID;
 /**
  * RFC 9562 UUIDv7 生成器。
  *
- * <p>生成器在同一毫秒和时钟回拨时递增 74 位随机区，因此单个实例生成的 UUID 保持唯一且单调。
- * 实例可在线程间安全复用。
+ * <p>同一毫秒内及时钟回拨期间靠递增 74 位随机区维持序号推进，因此单个实例产出的 UUID 唯一且
+ * 单调递增。实例线程安全，可跨线程复用。
  *
- * <p>单调性由递增实现，因此同一毫秒内的相邻值仅相差 1，可由前一个值推出后一个值。不要将本类的
- * 输出用作安全令牌或需要防猜测的资源标识，这类场景请改用 {@link IdUtils#nextUUID()} 的 UUIDv4。
+ * <p>单调性靠递增实现，同一毫秒内相邻值只差 1，后一个值可由前一个推出。因此不要把本类的输出
+ * 用作安全令牌或需要防猜测的标识，这类场景请改用 {@link IdUtils#nextUUID()} 的 UUIDv4。
  */
 public final class UUIDv7Generator {
 
@@ -55,10 +55,10 @@ public final class UUIDv7Generator {
     }
 
     /**
-     * 使用指定时钟和安全随机源创建生成器。
+     * 创建生成器并指定时钟与随机源，主要供确定性测试使用。
      *
      * @param clock  读取当前时间的时钟
-     * @param random 用于 UUIDv7 随机位的安全随机源
+     * @param random 填充随机位的安全随机源
      */
     public UUIDv7Generator(Clock clock, SecureRandom random) {
         this.clock = ValidationUtils.requireNonNull(clock, "clock");
@@ -91,6 +91,10 @@ public final class UUIDv7Generator {
         return new UUID(mostSignificantBits, leastSignificantBits);
     }
 
+    /**
+     * 在 74 位随机区上做加一：{@code randomB} 未满则自增，已满则进位到 {@code randomA}；
+     * 两段都到上限说明本毫秒的随机容量耗尽。
+     */
     private void incrementRandomBits() {
         if (randomB < MAX_RANDOM_B) {
             randomB++;

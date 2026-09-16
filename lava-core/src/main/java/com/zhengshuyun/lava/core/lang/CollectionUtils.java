@@ -28,7 +28,6 @@ import java.util.Collection;
  */
 public final class CollectionUtils {
 
-    /** 禁止实例化集合工具类。 */
     private CollectionUtils() {
         throw new UnsupportedOperationException("Utility class");
     }

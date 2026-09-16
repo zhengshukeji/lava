@@ -19,12 +19,12 @@ package com.zhengshuyun.lava.core.id;
 import java.util.UUID;
 
 /**
- * UUID 与雪花算法标识符的便捷入口。
+ * UUID 与雪花算法 ID 的便捷入口。
  */
 public final class IdUtils {
 
     /**
-     * 进程内复用的 UUIDv7 生成器，用于保留同一毫秒内的单调序列状态。
+     * 进程内复用的 UUIDv7 生成器，持有跨调用保持的单调序列状态。
      */
     private static final UUIDv7Generator DEFAULT_UUID_V7_GENERATOR = new UUIDv7Generator();
 
@@ -60,7 +60,7 @@ public final class IdUtils {
     }
 
     /**
-     * 返回进程内下一个单调递增的 UUIDv7 值。
+     * 返回进程内下一个单调递增的 UUIDv7。
      *
      * @return 新的 UUIDv7
      */
@@ -87,11 +87,11 @@ public final class IdUtils {
     }
 
     /**
-     * 创建使用显式工作节点标识的雪花算法生成器。
+     * 创建雪花算法生成器，工作节点标识由部署显式分配。
      *
-     * <p>返回的生成器必须在进程内复用；不要为每次生成调用此方法，否则序列状态会被重置。
+     * <p>生成器必须在进程内复用：每次生成 ID 都新建实例会不断重置序列状态。
      *
-     * @param workerId 部署配置分配的工作节点标识，范围为 0 到 1023
+     * @param workerId 部署配置分配的工作节点标识，取值 0 到 1023
      * @return 新的雪花算法生成器
      */
     public static SnowflakeIdGenerator newSnowflakeGenerator(int workerId) {

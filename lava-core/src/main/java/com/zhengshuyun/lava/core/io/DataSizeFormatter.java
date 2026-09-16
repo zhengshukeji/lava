@@ -20,7 +20,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 
 /**
- * 使用无歧义的 IEC 或 SI 单位格式化非负字节数。
+ * 把非负字节数格式化为无歧义的 IEC 或 SI 单位文本。
  */
 public final class DataSizeFormatter {
 
@@ -32,7 +32,7 @@ public final class DataSizeFormatter {
     }
 
     /**
-     * 使用 1024 的幂和 KiB、MiB 等 IEC 符号进行格式化。
+     * 按 1024 的幂和 KiB、MiB 等 IEC 符号格式化。
      *
      * <pre>{@code
      * DataSizeFormatter.formatIec(1_536); // "1.5 KiB"
@@ -46,7 +46,7 @@ public final class DataSizeFormatter {
     }
 
     /**
-     * 使用 1000 的幂和 kB、MB 等 SI 符号进行格式化。
+     * 按 1000 的幂和 kB、MB 等 SI 符号格式化。
      *
      * <pre>{@code
      * DataSizeFormatter.formatSi(1_536); // "1.54 kB"

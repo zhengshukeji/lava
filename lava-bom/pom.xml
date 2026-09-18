@@ -103,6 +103,18 @@
                 <artifactId>lava-mail</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <!-- 简道云开放平台 API 适配。 -->
+            <dependency>
+                <groupId>com.zhengshuyun</groupId>
+                <artifactId>lava-jiandaoyun</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- 钉钉开放平台 API 适配。 -->
+            <dependency>
+                <groupId>com.zhengshuyun</groupId>
+                <artifactId>lava-dingtalk</artifactId>
+                <version>${project.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 

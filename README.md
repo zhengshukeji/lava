@@ -16,6 +16,8 @@ Lava 是面向 Java 25 的模块化基础设施工具库，为 Java 应用提供
 | [`lava-http`](lava-http/README.md)         | 基于 OkHttp 5 的 HTTP 客户端、流式响应和 SSE              |
 | [`lava-pay-wechat`](lava-pay-wechat/README.md) | 微信支付 API v3 协议适配，不依赖微信官方 SDK          |
 | [`lava-pay-alipay`](lava-pay-alipay/README.md) | 支付宝开放平台支付协议适配，不依赖支付宝官方 SDK      |
+| [`lava-jiandaoyun`](lava-jiandaoyun/README.md)           | 简道云开放平台 API 适配，不依赖官方 SDK                  |
+| [`lava-dingtalk`](lava-dingtalk/README.md) | 钉钉开放平台 API 适配，不依赖官方 SDK                    |
 | [`lava-schedule`](lava-schedule/README.md) | 有界并发的进程内调度和 Cron 触发                          |
 | [`lava-crypto`](lava-crypto/README.md)     | Argon2id、HMAC、RSA/AES、EC 密钥和 PEM 处理               |
 | [`lava-mail`](lava-mail/README.md)         | SMTP、IMAP、MIME 和 OAuth 2 邮件认证                      |

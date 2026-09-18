@@ -56,6 +56,8 @@
         <module>lava-http</module>
         <module>lava-pay-wechat</module>
         <module>lava-pay-alipay</module>
+        <module>lava-jiandaoyun</module>
+        <module>lava-dingtalk</module>
         <module>lava-schedule</module>
         <module>lava-bom</module>
         <module>lava-crypto</module>

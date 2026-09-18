@@ -1,70 +1,22 @@
-# IntelliJ IDEA
+# IDE
 .idea/
 *.iml
-*.iws
-*.ipr
-out/
-
-# Visual Studio Code
-.vscode/
-*.code-workspace
-.history/
-
-# Eclipse
-.classpath
-.project
-.settings/
 
 # Maven
 target/
-pom.xml.tag
-pom.xml.releaseBackup
-pom.xml.versionsBackup
-pom.xml.next
-release.properties
-dependency-reduced-pom.xml
-buildNumber.properties
-.mvn/timing.properties
-.mvn/wrapper/maven-wrapper.jar
 
 # Java
 *.class
-*.jar
-*.war
-*.ear
+
+# 日志
 *.log
-hs_err_pid*
+logs/
 
 # macOS
 .DS_Store
-.AppleDouble
-.LSOverride
-._*
 
-# Compiled files
-bin/
-build/
-dist/
-
-# Package Files
-*.nar
-*.zip
-*.tar.gz
-*.rar
-*.gz
-
-# Log files
-logs/
-log/
-
-# Temporary files
-*.tmp
-*.swp
-*~
-
-# Environment variables
+# 本地环境与临时笔记
 .env
-.env.local
-
-# AI
 TODO.md
+PLAN.md
+notes/

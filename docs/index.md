@@ -34,4 +34,7 @@ features:
   - title: lava-pay-alipay
     details: 支付宝 OpenAPI V3、电脑网站支付、通知验签、退款与账单能力。
     link: /lava-pay-alipay/
+  - title: lava-jiandaoyun
+    details: 简道云开放平台 v5 应用、表单与表单字段查询。
+    link: /lava-jiandaoyun/
 ---

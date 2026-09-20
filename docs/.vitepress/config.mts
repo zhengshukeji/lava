@@ -27,6 +27,12 @@ export default defineConfig({
           { text: 'lava-pay-wechat', link: '/lava-pay-wechat/' },
           { text: 'lava-pay-alipay', link: '/lava-pay-alipay/' }
         ]
+      },
+      {
+        text: '平台模块',
+        items: [
+          { text: 'lava-jiandaoyun', link: '/lava-jiandaoyun/' }
+        ]
       }
     ],
 
@@ -159,6 +165,15 @@ export default defineConfig({
           text: '上线准备',
           items: [
             { text: '异常与安全', link: '/lava-pay-alipay/errors-security' }
+          ]
+        }
+      ],
+      '/lava-jiandaoyun/': [
+        {
+          text: 'lava-jiandaoyun',
+          items: [
+            { text: '模块概览', link: '/lava-jiandaoyun/' },
+            { text: '快速开始', link: '/lava-jiandaoyun/quick-start' }
           ]
         }
       ]

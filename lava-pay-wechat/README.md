@@ -61,6 +61,9 @@ WechatPayClient client = WechatPayClient.builder()
 `WechatPayClient` 线程安全，应作为长生命周期对象复用并在应用停止时关闭。默认 HTTP 客户端由它拥有；通过
 `.httpClient(...)` 传入的客户端视为借用，关闭微信支付客户端不会关闭借入对象。
 借入客户端必须关闭自动重试、HTTP 重定向和跨协议重定向；构建器会检查并拒绝不安全配置，以保持支付调用的显式失败语义。
+微信支付服务端会在连接空闲 8 秒后主动断开（`Keep-Alive: timeout=8`），默认 HTTP 客户端的空闲连接只保留
+`WechatPayClient.DEFAULT_CONNECTION_KEEP_ALIVE`（5 秒）；借入客户端也应通过 `connectionPool(...)` 设置不超过该值的保留时间，
+否则关闭重试后复用已断开的连接会直接得到 `kind=IO` 传输失败。
 调用方配置的拦截器属于可信边界，不得改写或记录签名、正文、APIv3 密钥或敏感响应。
 
 ## Native 下单
@@ -115,6 +118,7 @@ var transaction = client.transactions().queryByOutTradeNo("ORDER_001");
 var paid = client.transactions().queryByTransactionId("4200000000000000001");
 
 // 入账前使用后端可信订单记录核对 APPID、订单号和金额。
+// 微信只保证支付成功时返回金额：已关闭等未付款交易不含金额时只核对 APPID 和订单号，返回了金额则必须一致。
 paid.requireOrder("wx1234567890", "ORDER_001", 100);
 
 // 本地已经保存微信侧标识时，继续完整核对微信支付订单号和付款人 OpenID。
@@ -202,7 +206,7 @@ BillDownloadResult result = client.bills().download(
 
 公开异常统一位于 `com.zhengshuyun.lava.pay.wechat.exception` 包：
 
-- `WechatPayApiException`：微信支付返回的 HTTP 状态码、错误码、错误详情和 `Request-ID`；
+- `WechatPayApiException`：微信支付返回的 HTTP 状态码、错误码、错误详情和 `Request-ID`；`verified()` 为 `false` 表示网关层未签名错误（如请求签名错误的 401 `SIGN_ERROR`），只能用于诊断，不能据此更新支付状态（例如判断 `ORDER_NOT_EXIST` 前先确认 `verified()`）；
 - `WechatPayTransportException`：DNS、连接、TLS、超时等传输失败；
 - `WechatPaySecurityException`：签名、公钥 ID、时间戳、回调密文、响应一致性或账单摘要校验失败；
 - `WechatPayProtocolException`：响应不符合 APIv3 结构；

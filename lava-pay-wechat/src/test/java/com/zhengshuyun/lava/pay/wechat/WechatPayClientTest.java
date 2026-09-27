@@ -200,6 +200,42 @@ class WechatPayClientTest {
     }
 
     /**
+     * 验证已关闭交易的查单响应不含金额时，订单核对只校验应用和商户订单号。
+     */
+    @Test
+    void closedTransactionWithoutAmountPassesOrderCheck() {
+        server.enqueueSigned(200, """
+                {"appid":"wx1234567890","mchid":"1900000109",
+                 "out_trade_no":"ORDER_001","trade_state":"CLOSED",
+                 "trade_state_desc":"订单已关闭"}
+                """);
+
+        Transaction result = client.transactions().queryByOutTradeNo("ORDER_001");
+
+        assertSame(result, result.requireOrder(APPID, "ORDER_001", 100));
+    }
+
+    /**
+     * 验证未付款交易一旦返回金额，仍必须与可信订单金额一致。
+     */
+    @Test
+    void unpaidTransactionWithMismatchedAmountFailsOrderCheck() {
+        server.enqueueSigned(200, """
+                {"appid":"wx1234567890","mchid":"1900000109",
+                 "out_trade_no":"ORDER_001","trade_state":"NOTPAY",
+                 "trade_state_desc":"未支付",
+                 "amount":{"total":200,"currency":"CNY","payer_currency":"CNY"}}
+                """);
+
+        Transaction result = client.transactions().queryByOutTradeNo("ORDER_001");
+
+        WechatPaySecurityException failure = assertThrows(
+                WechatPaySecurityException.class,
+                () -> result.requireOrder(APPID, "ORDER_001", 100));
+        assertEquals(WechatPaySecurityFailure.RESPONSE_MISMATCH, failure.failure());
+    }
+
+    /**
      * 验证微信支付订单号查询使用官方路径，并将返回交易映射为统一领域模型。
      */
     @Test
@@ -286,10 +322,28 @@ class WechatPayClientTest {
                 () -> client.transactions().queryByOutTradeNo("ORDER_001"));
 
         assertEquals(400, failure.statusCode());
+        assertTrue(failure.verified());
         assertEquals("PARAM_ERROR", failure.code());
         assertEquals("request-id-001", failure.requestId());
         assertEquals("/amount/total", failure.detail().field());
         assertFalse(failure.toString().contains("secret-value"));
+    }
+
+    /**
+     * 验证网关层未签名的错误（如请求签名错误）保留真实错误码，并标记为未验签。
+     */
+    @Test
+    void unsignedApiErrorIsStructuredAsUnverified() {
+        server.enqueueUnsigned(401, """
+                {"code":"SIGN_ERROR","message":"签名错误"}
+                """.getBytes(StandardCharsets.UTF_8), "application/json");
+
+        WechatPayApiException failure = assertThrows(WechatPayApiException.class,
+                () -> client.transactions().queryByOutTradeNo("ORDER_001"));
+
+        assertEquals(401, failure.statusCode());
+        assertFalse(failure.verified());
+        assertEquals("SIGN_ERROR", failure.code());
     }
 
     /**

@@ -34,6 +34,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.cert.X509Certificate;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.function.Supplier;
@@ -54,6 +55,14 @@ public final class WechatPayClient implements AutoCloseable {
      * 微信支付 API 备用域名。
      */
     public static final URI BACKUP_API_BASE_URL = URI.create("https://api2.mch.weixin.qq.com/");
+    /**
+     * 默认 HTTP 客户端的空闲连接保留时间。
+     *
+     * <p>微信支付 API 服务端通过 {@code Keep-Alive: timeout=8} 在连接空闲 8 秒后主动断开，且 HTTP/1.1
+     * 断开前不会通知客户端。支付请求必须关闭连接失败重试，复用已断开的连接会直接得到传输失败，
+     * 所以本地保留时间必须短于服务端超时，保证过期连接先在本地回收。</p>
+     */
+    public static final Duration DEFAULT_CONNECTION_KEEP_ALIVE = Duration.ofSeconds(5);
 
     /**
      * 集中管理共享传输层、HTTP 资源所有权和客户端关闭状态的运行时。
@@ -397,7 +406,8 @@ public final class WechatPayClient implements AutoCloseable {
 
         /**
          * 借用调用方管理的 HTTP 客户端。关闭微信支付客户端不会关闭该对象。
-         * 调用方应关闭该客户端的连接失败重试、普通重定向和跨协议重定向。
+         * 调用方应关闭该客户端的连接失败重试、普通重定向和跨协议重定向，
+         * 并将空闲连接保留时间设为不超过 {@link WechatPayClient#DEFAULT_CONNECTION_KEEP_ALIVE}，否则会复用已被服务端断开的连接。
          *
          * @param value HTTP 客户端
          * @return 当前构建器
@@ -508,6 +518,10 @@ public final class WechatPayClient implements AutoCloseable {
                             .retryOnConnectionFailure(false)
                             .followRedirects(false)
                             .followSslRedirects(false)
+                            .connectionPool(
+                                    HttpClient.Builder.DEFAULT_MAX_IDLE_CONNECTIONS,
+                                    DEFAULT_CONNECTION_KEEP_ALIVE
+                            )
                             .build();
                 }
 

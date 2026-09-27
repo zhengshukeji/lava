@@ -99,6 +99,10 @@ public record Transaction(
     /**
      * 使用后端可信订单记录核对应用、商户订单号和订单金额。
      *
+     * <p>微信支付查单只保证在支付成功时返回 {@code amount}，已关闭等未付款状态的响应可能不含金额。
+     * 因此支付成功的交易必须带有一致的金额；未付款交易缺少金额时只核对应用和商户订单号，
+     * 但只要返回了金额就必须一致。</p>
+     *
      * @param expectedAppid      可信应用 ID
      * @param expectedOutTradeNo 可信商户订单号
      * @param expectedTotal      可信订单总金额，单位为分
@@ -116,10 +120,16 @@ public record Transaction(
                 "expectedOutTradeNo must not be blank"
         );
         WechatPayValidationUtils.requirePositive(expectedTotal, "expectedTotal");
-        if (!expectedAppid.equals(appid)
-                || !expectedOutTradeNo.equals(outTradeNo)
-                || amount == null
-                || amount.total == null
+        if (!expectedAppid.equals(appid) || !expectedOutTradeNo.equals(outTradeNo)) {
+            throw new WechatPaySecurityException(
+                    WechatPaySecurityFailure.RESPONSE_MISMATCH
+            );
+        }
+        // 支付成功的交易在构造时已要求金额，这里缺少金额只会是未付款交易，没有金额可核对。
+        if (amount == null) {
+            return this;
+        }
+        if (amount.total == null
                 || amount.total != expectedTotal
                 || !"CNY".equals(amount.currency)) {
             throw new WechatPaySecurityException(

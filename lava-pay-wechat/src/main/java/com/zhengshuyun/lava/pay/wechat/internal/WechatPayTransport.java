@@ -238,11 +238,11 @@ public final class WechatPayTransport {
         HttpResponse response = execute(HttpMethod.POST, uri, body);
         byte[] responseBody = response.getBodyAsBytes();
 
-        // 2. 无论状态码是否成功，均须先验证响应来源，再根据 HTTP 语义处理结果。
-        verify(response.getHeaders(), responseBody);
+        // 2. 失败响应按签名情况结构化；成功响应必须先验证来源，再根据 HTTP 语义处理结果。
         if (!response.isSuccessful()) {
-            throw apiException(response);
+            throw errorResponse(response.statusCode(), response.getHeaders(), responseBody);
         }
+        verify(response.getHeaders(), responseBody);
 
         // 3. 关单接口的成功语义固定为 204 且无正文，拒绝异常成功响应以防协议变化被静默忽略。
         if (response.statusCode() != 204 || response.getContentLength() != 0) {
@@ -292,7 +292,7 @@ public final class WechatPayTransport {
             if (body.length > MAX_DOWNLOAD_ERROR_BYTES) {
                 throw new WechatPayProtocolException("微信支付账单下载错误响应超过大小限制");
             }
-            throw apiException(stream.statusCode(), stream.headers(), body);
+            throw errorResponse(stream.statusCode(), stream.headers(), body);
         }
     }
 
@@ -363,18 +363,14 @@ public final class WechatPayTransport {
         HttpResponse response = execute(method, uri, body);
         byte[] responseBody = response.getBodyAsBytes();
 
-        // 1. 成功和失败响应都必须先验证来源，不能让未验签错误信息进入业务判断。
+        // 1. 失败响应按签名情况结构化；成功响应必须先验证来源，不能让未验签数据进入业务判断。
+        if (!response.isSuccessful()) {
+            throw errorResponse(response.statusCode(), response.getHeaders(), responseBody);
+        }
         verify(response.getHeaders(), responseBody);
         if (response.statusCode() != 200) {
-            if (response.isSuccessful()) {
-                throw new WechatPayProtocolException(
-                        "微信支付 JSON API 成功响应必须为 200"
-                );
-            }
-            throw apiException(
-                    response.statusCode(),
-                    response.getHeaders(),
-                    responseBody
+            throw new WechatPayProtocolException(
+                    "微信支付 JSON API 成功响应必须为 200"
             );
         }
 
@@ -509,29 +505,36 @@ public final class WechatPayTransport {
     }
 
     /**
-     * 将已验签的缓冲响应转换为结构化 API 异常。
+     * 将失败响应转换为结构化 API 异常。
      *
-     * @param response 已完成验签的 HTTP 响应
-     * @return 保留错误码、参数明细与 Request-ID 的领域异常
+     * <p>微信支付网关层错误（如请求签名错误返回的 401 {@code SIGN_ERROR}）不带签名头，
+     * 按未验签错误返回，供调用方诊断；带签名头的错误必须验签通过。</p>
+     *
+     * @param statusCode HTTP 响应状态码
+     * @param headers 响应头
+     * @param body 原始错误正文
+     * @return 结构化微信支付 API 异常
      */
-    private WechatPayApiException apiException(HttpResponse response) {
-        return apiException(
-                response.statusCode(),
-                response.getHeaders(),
-                response.getBodyAsBytes()
-        );
+    private WechatPayApiException errorResponse(int statusCode, HttpHeaders headers, byte[] body) {
+        boolean signed = headers.get(WechatPayCryptoUtils.HEADER_SIGNATURE) != null;
+        if (signed) {
+            verify(headers, body);
+        }
+        return apiException(statusCode, signed, headers, body);
     }
 
     /**
-     * 将已验签错误正文转换为结构化 API 异常。
+     * 将错误正文转换为结构化 API 异常。
      *
      * @param statusCode HTTP 响应状态码
+     * @param verified 错误正文是否已通过签名验证
      * @param headers 用于提取 Request-ID 的响应头
-     * @param body 已验签的原始错误正文
+     * @param body 原始错误正文
      * @return 结构化微信支付 API 异常
      */
     private WechatPayApiException apiException(
             int statusCode,
+            boolean verified,
             HttpHeaders headers,
             byte[] body
     ) {
@@ -556,6 +559,7 @@ public final class WechatPayTransport {
                 );
         return new WechatPayApiException(
                 statusCode,
+                verified,
                 error.code,
                 error.message,
                 detail,

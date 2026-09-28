@@ -18,6 +18,7 @@ package com.zhengshuyun.lava.pay.wechat.nativepay;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
+import com.zhengshuyun.lava.pay.wechat.exception.WechatPayException;
 import com.zhengshuyun.lava.pay.wechat.exception.WechatPayProtocolException;
 import com.zhengshuyun.lava.pay.wechat.internal.WechatPayTransport;
 import org.jspecify.annotations.Nullable;

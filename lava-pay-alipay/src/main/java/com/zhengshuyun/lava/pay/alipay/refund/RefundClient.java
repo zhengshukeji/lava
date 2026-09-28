@@ -9,6 +9,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.http.HttpMethod;
+import com.zhengshuyun.lava.pay.alipay.exception.AlipayException;
 import com.zhengshuyun.lava.pay.alipay.internal.*;
 import org.jspecify.annotations.Nullable;
 

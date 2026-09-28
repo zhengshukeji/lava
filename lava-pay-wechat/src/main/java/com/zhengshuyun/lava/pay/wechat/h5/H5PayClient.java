@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.zhengshuyun.lava.pay.wechat.nativepay;
+package com.zhengshuyun.lava.pay.wechat.h5;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.pay.wechat.exception.WechatPayException;
@@ -22,20 +22,21 @@ import com.zhengshuyun.lava.pay.wechat.exception.WechatPayProtocolException;
 import com.zhengshuyun.lava.pay.wechat.internal.WechatPayPrepayUtils;
 import com.zhengshuyun.lava.pay.wechat.internal.WechatPayTransport;
 import com.zhengshuyun.lava.pay.wechat.prepay.PrepayRequest;
+import com.zhengshuyun.lava.pay.wechat.prepay.PrepaySceneInfo;
 
 import java.net.URI;
 
 /**
- * 微信支付 APIv3 普通商户 Native 支付入口。
+ * 微信支付 APIv3 普通商户 H5 支付入口，用于微信外的手机浏览器。
  *
- * <p>实例固定绑定一个 APPID 和支付结果通知地址；单笔下单只接收业务参数，避免调用方误传商户号、
- * APPID 或通知地址。二维码图片渲染、订单幂等和支付结果轮询不属于本客户端职责。</p>
+ * <p>实例固定绑定一个 APPID 和支付结果通知地址。H5 支付需要在商户平台单独开通并配置支付域名；
+ * 微信内打开的网页应改用 JSAPI 支付。</p>
  */
-public final class NativePayClient {
+public final class H5PayClient {
     /**
-     * Native 下单接口的固定 API 路径。
+     * H5 下单接口的固定 API 路径。
      */
-    private static final String PREPAY_PATH = "/v3/pay/transactions/native";
+    private static final String PREPAY_PATH = "/v3/pay/transactions/h5";
 
     /**
      * 共享协议能力和根客户端关闭状态所在的传输层。
@@ -51,42 +52,46 @@ public final class NativePayClient {
     private final URI notifyUrl;
 
     /**
-     * 由应用上下文创建 Native 支付入口。
+     * 由应用上下文创建 H5 支付入口。
      *
-     * @param transport   共享协议传输层
+     * @param transport 共享协议传输层
      * @param appid     应用 ID
      * @param notifyUrl 固定支付通知地址
      */
-    public NativePayClient(WechatPayTransport transport,
-                           String appid,
-                           URI notifyUrl) {
+    public H5PayClient(WechatPayTransport transport,
+                       String appid,
+                       URI notifyUrl) {
         this.transport = ValidationUtils.requireNonNull(transport, "transport");
         this.appid = ValidationUtils.requireNotBlank(appid, "appid");
         this.notifyUrl = ValidationUtils.requireNonNull(notifyUrl, "notifyUrl");
     }
 
     /**
-     * 创建 Native 预支付订单并返回二维码链接。
+     * 创建 H5 预支付订单并返回支付跳转链接。
      *
-     * @param request 下单业务参数
+     * @param request 下单业务参数，必须包含带 {@code h5Info} 的场景信息
      * @return 已验签的下单结果
-     * @throws WechatPayException 协议调用失败
+     * @throws IllegalArgumentException 请求为空，或缺少场景信息、H5 场景信息
+     * @throws WechatPayException       协议调用失败
      */
-    public NativePrepayResponse prepay(PrepayRequest request) {
-        // 1. 先确认根客户端未关闭，防止关闭后继续创建支付订单。
+    public H5PrepayResponse prepay(PrepayRequest request) {
+        // 1. 先确认根客户端未关闭，再校验 H5 协议必填的场景信息（用户终端 IP 已由场景信息自身保证）
         transport.ensureOpen();
         ValidationUtils.requireNonNull(request, "request must not be null");
+        PrepaySceneInfo sceneInfo = ValidationUtils.requireNonNull(
+                request.sceneInfo(), "sceneInfo is required for H5 prepay");
+        ValidationUtils.requireNonNull(
+                sceneInfo.h5Info(), "sceneInfo.h5Info is required for H5 prepay");
 
-        // 2. 将固定应用配置与单笔业务参数合成为最终协议载荷，业务请求不能覆盖商户级配置。
+        // 2. 与 Native 共用载荷组装，H5 场景信息随 scene_info 一并输出。
         Object payload = WechatPayPrepayUtils.payload(
                 appid, transport.mchid(), notifyUrl, request, null);
 
-        // 3. 由传输层使用最终载荷完成 JSON 编码、请求签名、发送、响应验签和结果解析
-        NativePrepayResponse response = transport.post(
-                transport.endpoint(PREPAY_PATH), payload, NativePrepayResponse.class);
-        // code_url 是下单的唯一产出，缺失说明协议已变化，不能把 null 交给调用方
-        if (response.codeUrl() == null) {
-            throw new WechatPayProtocolException("微信支付 Native 下单响应缺少 code_url");
+        // 3. 由传输层完成签名、发送、响应验签和解析；h5_url 是唯一产出，缺失说明协议已变化
+        H5PrepayResponse response = transport.post(
+                transport.endpoint(PREPAY_PATH), payload, H5PrepayResponse.class);
+        if (response.h5Url() == null) {
+            throw new WechatPayProtocolException("微信支付 H5 下单响应缺少 h5_url");
         }
         return response;
     }

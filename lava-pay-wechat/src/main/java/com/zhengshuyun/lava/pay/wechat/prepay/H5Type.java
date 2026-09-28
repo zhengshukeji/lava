@@ -14,10 +14,21 @@
  * limitations under the License.
  */
 
-/**
- * 支付宝 OpenAPI V3 支付协议适配，包含官方仍要求使用 AOP 的电脑网站与手机网站页面支付。
- */
-@NullMarked
-package com.zhengshuyun.lava.pay.alipay;
+package com.zhengshuyun.lava.pay.wechat.prepay;
 
-import org.jspecify.annotations.NullMarked;
+/**
+ * H5 下单场景类型常量，取值区分大小写。
+ */
+public final class H5Type {
+    /** 手机浏览器网页。 */
+    public static final String WAP = "Wap";
+    /** iOS 应用内打开的网页。 */
+    public static final String IOS = "iOS";
+    /** Android 应用内打开的网页。 */
+    public static final String ANDROID = "Android";
+
+    /** 禁止实例化场景类型常量容器。 */
+    private H5Type() {
+        throw new UnsupportedOperationException("Constants class");
+    }
+}

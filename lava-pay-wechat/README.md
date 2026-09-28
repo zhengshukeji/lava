@@ -1,7 +1,7 @@
 # lava-pay-wechat
 
 `lava-pay-wechat` 是面向微信支付 APIv3 普通商户的同步 Java 工具包，不依赖微信支付官方 SDK。模块基于 `lava-http`、
-`lava-json` 和 `lava-crypto`，完成请求签名、应答验签、通知解密、Native 下单、交易查询、退款和账单下载。
+`lava-json` 和 `lava-crypto`，完成请求签名、应答验签、通知解密、Native/JSAPI/H5 下单、交易查询、退款和账单下载。
 
 ```xml
 <dependency>
@@ -18,12 +18,14 @@
 
 - APIv3 境内普通商户；
 - 微信支付公钥验签模式；
-- Native 下单并返回 `code_url`；
+- Native 下单并返回 `code_url`（PC 扫码）；
+- JSAPI 下单并生成调起支付签名（公众号网页、小程序）；
+- H5 下单并返回 `h5_url`（微信外的手机浏览器）；
 - 按商户订单号或微信支付订单号查单、关闭未支付订单；
 - 正常退款申请、退款查询、支付及退款通知解析；
 - 交易账单和资金账单申请、流式下载及 SHA-1 完整性校验。
 
-当前不包含服务商模式、平台证书模式、异常退款、二维码图片渲染和账单 CSV/GZIP 解析。模块只负责微信支付协议适配，
+当前不包含 APP 支付、服务商模式、平台证书模式、异常退款、二维码图片渲染和账单 CSV/GZIP 解析。模块只负责微信支付协议适配，
 不负责业务支付订单、幂等、渠道路由、通知持久化、轮询补偿和对账差异处理。
 
 从平台证书切换到微信支付公钥的灰度期内，部分回调仍可能由平台证书签名。本模块会对这类回调失败关闭；存量商户应在
@@ -76,7 +78,7 @@ WechatPayApplication application = client.application(
         "https://pay.example.com/wechat/transaction-notify");
 
 NativePrepayResponse response = application.nativePay().prepay(
-        NativePrepayRequest.builder()
+        PrepayRequest.builder()
                 .description("订单 ORDER_001")
                 .outTradeNo("ORDER_001")
                 .amount(100) // 单位：分
@@ -91,25 +93,72 @@ URI codeUrl = response.codeUrl();
 需要单品、门店或分账标识时，可继续配置对应业务模型：
 
 ```java
-NativePrepayRequest request = NativePrepayRequest.builder()
+PrepayRequest request = PrepayRequest.builder()
         .description("深圳门店订单")
         .outTradeNo("ORDER_002")
         .amount(528800)
-        .detail(NativePrepayDetail.builder()
-                .addGoodsDetail(NativePrepayDetail.GoodsDetail.builder()
+        .detail(PrepayDetail.builder()
+                .addGoodsDetail(PrepayDetail.GoodsDetail.builder()
                         .merchantGoodsId("IPHONE_001")
                         .goodsName("iPhone")
                         .quantity(1)
                         .unitPrice(528800)
                         .build())
                 .build())
-        .sceneInfo(NativePrepaySceneInfo.builder()
+        .sceneInfo(PrepaySceneInfo.builder()
                 .payerClientIp("203.0.113.10")
                 .deviceId("POS_001")
                 .build())
         .profitSharing(false)
         .build();
 ```
+
+Native、JSAPI、H5 三种下单共用 `PrepayRequest`、`PrepayDetail` 和 `PrepaySceneInfo`（位于 `prepay` 包）。
+
+## JSAPI 下单与调起支付
+
+公众号网页和小程序都走 JSAPI，但二者的 APPID 不同，应各创建一个应用上下文；`openid` 必须是在同一 APPID 下获取的：
+
+```java
+WechatPayApplication miniProgram = client.application(
+        "wx_mini_program_appid",
+        "https://pay.example.com/wechat/transaction-notify");
+
+JsapiPayParams params = miniProgram.jsapiPay().prepayWithRequestPayment(
+        "o-user-openid",
+        PrepayRequest.builder()
+                .description("订单 ORDER_003")
+                .outTradeNo("ORDER_003")
+                .amount(100)
+                .build());
+```
+
+`JsapiPayParams` 序列化后的字段为 `appId`、`timeStamp`、`nonceStr`、`package`、`signType`、`paySign`，可以直接交给
+小程序的 `wx.requestPayment(...)`（会忽略 `appId`）或公众号网页的 `WeixinJSBridge.invoke('getBrandWCPayRequest', ...)`。
+`prepay_id` 有效期为 2 小时，用户取消后在有效期内重新支付时，可只调用 `jsapiPay().requestPayment(prepayId)` 重新签名，
+不必再次下单。前端回调的“支付成功”不能作为入账依据，仍以支付通知或查单结果为准。
+
+## H5 下单
+
+H5 用于微信外的手机浏览器，需要先在商户平台开通 H5 支付并配置支付域名。场景信息及其中的 `h5Info` 必填：
+
+```java
+H5PrepayResponse response = application.h5Pay().prepay(
+        PrepayRequest.builder()
+                .description("订单 ORDER_004")
+                .outTradeNo("ORDER_004")
+                .amount(100)
+                .sceneInfo(PrepaySceneInfo.builder()
+                        .payerClientIp("203.0.113.10") // 用户真实 IP，不是服务器 IP
+                        .h5Info(PrepaySceneInfo.H5Info.of(H5Type.WAP))
+                        .build())
+                .build());
+
+URI h5Url = response.h5Url();
+```
+
+`h5_url` 有效期为 5 分钟，前端跳转后拉起微信收银台；可在其后追加 URL 编码的 `redirect_url` 参数指定支付后返回的页面。
+返回页面同样不代表支付成功。
 
 ## 查单、关单与退款
 

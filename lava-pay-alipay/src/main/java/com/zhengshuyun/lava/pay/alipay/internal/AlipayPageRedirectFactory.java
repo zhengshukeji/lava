@@ -22,13 +22,14 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * 电脑网站支付 AOP 页面跳转数据生成器。
+ * 电脑网站与手机网站支付共用的 AOP 页面跳转数据生成器。
  *
- * <p>支付宝官方尚未提供 {@code alipay.trade.page.pay} 的 REST V3 路径；该类隔离页面支付仍需使用的
+ * <p>支付宝官方尚未提供 {@code alipay.trade.page.pay} 与 {@code alipay.trade.wap.pay} 的 REST V3
+ * 路径；该类隔离页面支付仍需使用的
  * {@code gateway.do} 参数签名协议，避免它与服务端 API 的 V3 传输逻辑混在一起。POST 模式生成自动提交
  * HTML 表单，GET 模式生成可直接交给浏览器跳转的支付 URL；支付宝官方推荐优先使用 POST。</p>
  */
-public final class AlipayPagePayRedirectFactory {
+public final class AlipayPageRedirectFactory {
     /** 支付宝 {@code pageRedirectionData} 允许的最大长度，单位为字符。 */
     private static final int MAX_REDIRECTION_DATA_LENGTH = 16_384;
     /** 页面支付 AOP 协议版本，固定为 {@code 1.0}。 */
@@ -63,7 +64,7 @@ public final class AlipayPagePayRedirectFactory {
      * @param clock         协议时钟
      * @param jsonCodec     JSON 编解码器
      */
-    public AlipayPagePayRedirectFactory(
+    public AlipayPageRedirectFactory(
             String appId,
             PrivateKey appPrivateKey,
             URI baseUrl,
@@ -78,7 +79,7 @@ public final class AlipayPagePayRedirectFactory {
     }
 
     /**
-     * 生成电脑网站支付的官方 AOP 签名 POST 表单，不向支付宝发送 HTTP 请求。
+     * 生成页面支付的官方 AOP 签名 POST 表单，不向支付宝发送 HTTP 请求。
      *
      * @param method     页面支付接口名称
      * @param bizRequest 业务参数
@@ -119,7 +120,7 @@ public final class AlipayPagePayRedirectFactory {
     }
 
     /**
-     * 生成电脑网站支付的官方 AOP 签名 GET 地址，不向支付宝发送 HTTP 请求。
+     * 生成页面支付的官方 AOP 签名 GET 地址，不向支付宝发送 HTTP 请求。
      *
      * <p>该地址包含完整业务参数和签名，可能出现在浏览器历史、代理及访问日志中；调用方不得记录
      * 完整地址。业务参数较多时应改用 {@link #createForm(String, Object, URI, URI)}，避免超过浏览器、

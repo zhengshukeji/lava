@@ -6,7 +6,7 @@ Native 支付由商户后端调用下单接口取得 `code_url`，再由前端�
 
 ```java
 NativePrepayResponse response = application.nativePay().prepay(
-        NativePrepayRequest.builder()
+        PrepayRequest.builder()
                 .description("订单 ORDER_001")
                 .outTradeNo("ORDER_001")
                 .amount(100) // 单位：分
@@ -23,13 +23,13 @@ URI codeUrl = response.codeUrl();
 ## 完整业务参数
 
 ```java
-NativePrepayRequest request = NativePrepayRequest.builder()
+PrepayRequest request = PrepayRequest.builder()
         .description("深圳门店订单")
         .outTradeNo("ORDER_002")
         .amount(528_800)
-        .detail(NativePrepayDetail.builder()
+        .detail(PrepayDetail.builder()
                 .addGoodsDetail(
-                        NativePrepayDetail.GoodsDetail.builder()
+                        PrepayDetail.GoodsDetail.builder()
                                 .merchantGoodsId("IPHONE_001")
                                 .goodsName("iPhone")
                                 .quantity(1)
@@ -37,7 +37,7 @@ NativePrepayRequest request = NativePrepayRequest.builder()
                                 .build()
                 )
                 .build())
-        .sceneInfo(NativePrepaySceneInfo.builder()
+        .sceneInfo(PrepaySceneInfo.builder()
                 .payerClientIp("203.0.113.10")
                 .deviceId("POS_001")
                 .build())

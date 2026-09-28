@@ -23,13 +23,15 @@ import com.zhengshuyun.lava.json.JsonCodec;
 import com.zhengshuyun.lava.pay.alipay.bill.BillClient;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayJsonUtils;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayKeyUtils;
-import com.zhengshuyun.lava.pay.alipay.internal.AlipayPagePayRedirectFactory;
+import com.zhengshuyun.lava.pay.alipay.internal.AlipayPageRedirectFactory;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayTransport;
+import com.zhengshuyun.lava.pay.alipay.jsapipay.JsapiPayClient;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayValidationUtils;
 import com.zhengshuyun.lava.pay.alipay.notification.NotificationParser;
 import com.zhengshuyun.lava.pay.alipay.pagepay.PagePayClient;
 import com.zhengshuyun.lava.pay.alipay.refund.RefundClient;
 import com.zhengshuyun.lava.pay.alipay.transaction.TransactionClient;
+import com.zhengshuyun.lava.pay.alipay.wappay.WapPayClient;
 import org.jspecify.annotations.Nullable;
 
 import java.net.URI;
@@ -43,8 +45,9 @@ import java.time.Clock;
  * 线程安全的支付宝 OpenAPI V3 普通商户公钥模式根客户端。
  *
  * <p>根客户端固定绑定应用 ID、卖家 ID、应用私钥和支付宝公钥，并共享 HTTP 连接资源。
- * 页面支付由轻量上下文绑定通知地址；查单、退款、账单和通知解析直接复用根客户端协议能力。
- * 其中服务端 API 使用 REST V3，电脑网站页面支付按支付宝当前唯一支持的 AOP 页面跳转协议生成表单。</p>
+ * 电脑网站、手机网站和小程序支付由轻量上下文绑定通知地址；查单、退款、账单和通知解析直接复用
+ * 根客户端协议能力。其中服务端 API 使用 REST V3，电脑网站与手机网站支付按支付宝当前唯一支持的
+ * AOP 页面跳转协议生成表单。</p>
  *
  * <p>客户端应作为长生命周期对象复用，{@link #close()} 可幂等调用。关闭后，业务入口及此前取得的
  * 子客户端均不可继续发起协议操作；应用 ID 和卖家 ID 仍可读取。默认 HTTP 客户端不会自动重试请求或跟随重定向；
@@ -63,8 +66,8 @@ public final class AlipayClient implements AutoCloseable {
     private final String sellerId;
     /** 各业务入口共享的协议传输层，同时持有 HTTP 资源所有权与关闭状态。 */
     private final AlipayTransport transport;
-    /** 页面支付表单与跳转地址工厂。 */
-    private final AlipayPagePayRedirectFactory pagePayRedirects;
+    /** 电脑网站与手机网站支付共用的表单与跳转地址工厂。 */
+    private final AlipayPageRedirectFactory pageRedirects;
     /** 交易查询与关闭入口。 */
     private final TransactionClient transactionClient;
     /** 退款申请与查询入口。 */
@@ -81,19 +84,19 @@ public final class AlipayClient implements AutoCloseable {
      * @param sellerId         卖家支付宝用户 ID
      * @param alipayPublicKey  支付宝公钥
      * @param transport        共享协议传输层
-     * @param pagePayRedirects 页面支付跳转工厂
+     * @param pageRedirects 页面支付跳转工厂
      */
     private AlipayClient(
             String appId,
             String sellerId,
             PublicKey alipayPublicKey,
             AlipayTransport transport,
-            AlipayPagePayRedirectFactory pagePayRedirects
+            AlipayPageRedirectFactory pageRedirects
     ) {
         this.appId = appId;
         this.sellerId = sellerId;
         this.transport = transport;
-        this.pagePayRedirects = pagePayRedirects;
+        this.pageRedirects = pageRedirects;
         transactionClient = new TransactionClient(transport);
         refundClient = new RefundClient(transport);
         billClient = new BillClient(transport);
@@ -143,7 +146,7 @@ public final class AlipayClient implements AutoCloseable {
      */
     public PagePayClient pagePay(URI notifyUrl, URI returnUrl) {
         transport.ensureOpen();
-        return new PagePayClient(transport, pagePayRedirects, notifyUrl, returnUrl);
+        return new PagePayClient(transport, pageRedirects, notifyUrl, returnUrl);
     }
 
     /**
@@ -157,6 +160,58 @@ public final class AlipayClient implements AutoCloseable {
      */
     public PagePayClient pagePay(String notifyUrl, String returnUrl) {
         return pagePay(parseUri(notifyUrl, "notifyUrl"), parseUri(returnUrl, "returnUrl"));
+    }
+
+    /**
+     * 创建绑定异步通知与同步返回地址的手机网站支付入口。
+     *
+     * @param notifyUrl 异步支付通知地址
+     * @param returnUrl 支付完成同步返回地址
+     * @return 可复用手机网站支付入口
+     * @throws IllegalArgumentException 地址不是符合支付宝要求的绝对 HTTP 或 HTTPS URI
+     * @throws IllegalStateException    根客户端已经关闭
+     */
+    public WapPayClient wapPay(URI notifyUrl, URI returnUrl) {
+        transport.ensureOpen();
+        return new WapPayClient(transport, pageRedirects, notifyUrl, returnUrl);
+    }
+
+    /**
+     * 使用字符串地址创建手机网站支付入口。
+     *
+     * @param notifyUrl 异步支付通知地址
+     * @param returnUrl 支付完成同步返回地址
+     * @return 可复用手机网站支付入口
+     * @throws IllegalArgumentException 地址为空、语法无效或不符合支付宝回调地址要求
+     * @throws IllegalStateException    根客户端已经关闭
+     */
+    public WapPayClient wapPay(String notifyUrl, String returnUrl) {
+        return wapPay(parseUri(notifyUrl, "notifyUrl"), parseUri(returnUrl, "returnUrl"));
+    }
+
+    /**
+     * 创建绑定异步通知地址的小程序支付（JSAPI）入口。
+     *
+     * @param notifyUrl 异步支付通知地址
+     * @return 可复用小程序支付入口
+     * @throws IllegalArgumentException 地址不是符合支付宝要求的绝对 HTTP 或 HTTPS URI
+     * @throws IllegalStateException    根客户端已经关闭
+     */
+    public JsapiPayClient jsapiPay(URI notifyUrl) {
+        transport.ensureOpen();
+        return new JsapiPayClient(transport, notifyUrl);
+    }
+
+    /**
+     * 使用字符串地址创建小程序支付（JSAPI）入口。
+     *
+     * @param notifyUrl 异步支付通知地址
+     * @return 可复用小程序支付入口
+     * @throws IllegalArgumentException 地址为空、语法无效或不符合支付宝回调地址要求
+     * @throws IllegalStateException    根客户端已经关闭
+     */
+    public JsapiPayClient jsapiPay(String notifyUrl) {
+        return jsapiPay(parseUri(notifyUrl, "notifyUrl"));
     }
 
     /**
@@ -437,7 +492,7 @@ public final class AlipayClient implements AutoCloseable {
                         clock,
                         jsonCodec
                 );
-                AlipayPagePayRedirectFactory pagePayRedirects = new AlipayPagePayRedirectFactory(
+                AlipayPageRedirectFactory pageRedirects = new AlipayPageRedirectFactory(
                         checkedAppId,
                         checkedPrivateKey,
                         baseUrl,
@@ -445,7 +500,7 @@ public final class AlipayClient implements AutoCloseable {
                         jsonCodec
                 );
                 return new AlipayClient(
-                        checkedAppId, checkedSellerId, checkedPublicKey, transport, pagePayRedirects);
+                        checkedAppId, checkedSellerId, checkedPublicKey, transport, pageRedirects);
             } catch (RuntimeException exception) {
                 // 仅关闭本构建器创建的资源，调用方借出的客户端仍由调用方管理
                 if (ownsHttpClient) {

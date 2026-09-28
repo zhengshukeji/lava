@@ -13,9 +13,12 @@ import com.zhengshuyun.lava.json.JsonCodec;
 import com.zhengshuyun.lava.pay.alipay.bill.BillType;
 import com.zhengshuyun.lava.pay.alipay.exception.*;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayCryptoUtils;
+import com.zhengshuyun.lava.pay.alipay.jsapipay.*;
+import com.zhengshuyun.lava.pay.alipay.order.*;
 import com.zhengshuyun.lava.pay.alipay.pagepay.*;
 import com.zhengshuyun.lava.pay.alipay.refund.*;
 import com.zhengshuyun.lava.pay.alipay.transaction.*;
+import com.zhengshuyun.lava.pay.alipay.wappay.*;
 import org.junit.jupiter.api.*;
 import tools.jackson.databind.JsonNode;
 
@@ -125,7 +128,7 @@ class AlipayClientTest {
                 .qrcodeWidth(240)
                 .addEnablePayChannel("balance")
                 .passbackParams("a=b&c=d")
-                .addGoodsDetail(PagePayGoodsDetail.builder()
+                .addGoodsDetail(GoodsDetail.builder()
                         .goodsId("SKU_001")
                         .goodsName("测试商品")
                         .quantity(2)
@@ -134,10 +137,10 @@ class AlipayClientTest {
                 .storeId("STORE_001")
                 .build();
 
-        PagePayForm form = client.pagePay(URI.create("https://pay.example.com/alipay/notify"), URI.create("https://pay.example.com/alipay/return"))
+        PayForm form = client.pagePay(URI.create("https://pay.example.com/alipay/notify"), URI.create("https://pay.example.com/alipay/return"))
                 .createForm(request);
 
-        assertEquals(PagePayForm.CONTENT_TYPE, "text/html;charset=UTF-8");
+        assertEquals(PayForm.CONTENT_TYPE, "text/html;charset=UTF-8");
         assertFalse(form.html().contains("<script>alert(1)</script>"));
         assertTrue(form.html().contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
         String action = htmlUnescape(between(form.html(), "action=\"", "\">"));
@@ -211,7 +214,7 @@ class AlipayClientTest {
                 .totalAmount(10_000)
                 .subject("超长 GET 页面跳转数据");
         for (int index = 0; index < 50; index++) {
-            request.addGoodsDetail(PagePayGoodsDetail.builder()
+            request.addGoodsDetail(GoodsDetail.builder()
                     .goodsId("SKU_" + index)
                     .goodsName("测试商品" + index)
                     .quantity(1)
@@ -229,6 +232,118 @@ class AlipayClientTest {
         );
 
         assertTrue(failure.getMessage().contains("POST 表单"));
+    }
+
+    /**
+     * 验证手机网站支付表单使用 wap.pay 方法和 QUICK_WAP_WAY 产品码，携带退出地址且签名可验证。
+     */
+    @Test
+    void wapPayGeneratesSignedFormWithQuitUrl() {
+        WapPayRequest request = WapPayRequest.builder()
+                .outTradeNo("ORDER_001")
+                .totalAmount(123)
+                .subject("订单 ORDER_001")
+                .timeout(Duration.ofMinutes(30))
+                .quitUrl("https://shop.example.com/order/ORDER_001")
+                .passbackParams("a=b&c=d")
+                .addGoodsDetail(GoodsDetail.builder()
+                        .goodsId("SKU_001")
+                        .goodsName("测试商品")
+                        .quantity(1)
+                        .price(123)
+                        .build())
+                .build();
+
+        PayForm form = client.wapPay("https://pay.example.com/alipay/notify",
+                        "https://pay.example.com/alipay/return")
+                .createForm(request);
+
+        String action = htmlUnescape(between(form.html(), "action=\"", "\">"));
+        String bizContent = htmlUnescape(between(form.html(), "name=\"biz_content\" value=\"", "\">"));
+        Map<String, String> params = queryParams(URI.create(action));
+        String signature = params.remove("sign");
+        params.put("biz_content", bizContent);
+        assertTrue(AlipayCryptoUtils.verify(AlipayCryptoUtils.signatureContent(params), signature, appKeys.getPublic()));
+        assertEquals("alipay.trade.wap.pay", params.get("method"));
+        assertEquals("https://pay.example.com/alipay/return", params.get("return_url"));
+        JsonNode body = JsonCodec.defaultCodec().readTree(bizContent);
+        assertEquals("QUICK_WAP_WAY", body.get("product_code").stringValue());
+        assertEquals("https://shop.example.com/order/ORDER_001", body.get("quit_url").stringValue());
+        assertEquals("30m", body.get("timeout_express").stringValue());
+        assertEquals("a%3Db%26c%3Dd", body.get("passback_params").stringValue());
+        assertEquals("1.23", body.get("goods_detail").get(0).get("price").stringValue());
+        assertFalse(body.has("integration_type"));
+        assertFalse(body.has("qr_pay_mode"));
+
+        // GET 模式与 POST 表单共用同一套签名参数
+        URI paymentUrl = client.wapPay("https://pay.example.com/alipay/notify",
+                "https://pay.example.com/alipay/return").createUrl(request);
+        assertEquals("alipay.trade.wap.pay", queryParams(paymentUrl).get("method"));
+    }
+
+    /**
+     * 验证小程序支付调用 V3 交易创建接口，请求体携带 JSAPI_PAY 产品码、买家 OpenID 与通知地址。
+     */
+    @Test
+    void jsapiPayCreatesTradeWithV3SignedRequest() {
+        server.enqueueSigned("""
+                {"trade_no":"2026000000000000001","out_trade_no":"ORDER_001"}
+                """);
+
+        JsapiPayResult result = client.jsapiPay("https://pay.example.com/alipay/notify")
+                .create(JsapiPayRequest.builder()
+                        .outTradeNo("ORDER_001")
+                        .totalAmount(123)
+                        .subject("订单 ORDER_001")
+                        .buyerOpenId("074a1CcTG1LelxKe4xQC0zgNdId0nxi95b5lsNpazWYoCo5")
+                        .opAppId("2014072300007148")
+                        .timeExpire(LocalDateTime.of(2026, 8, 29, 14, 0))
+                        .build());
+
+        assertEquals("2026000000000000001", result.tradeNo());
+        assertEquals("ORDER_001", result.outTradeNo());
+        AlipayTestServer.CapturedRequest captured = server.takeRequest();
+        assertSignedRequest(captured, "POST", "/v3/alipay/trade/create");
+        JsonNode body = requestBody(captured);
+        assertEquals("JSAPI_PAY", body.get("product_code").stringValue());
+        assertEquals("1.23", body.get("total_amount").stringValue());
+        assertEquals("074a1CcTG1LelxKe4xQC0zgNdId0nxi95b5lsNpazWYoCo5",
+                body.get("buyer_open_id").stringValue());
+        assertEquals("2014072300007148", body.get("op_app_id").stringValue());
+        assertEquals("2026-08-29 14:00:00", body.get("time_expire").stringValue());
+        assertEquals("https://pay.example.com/alipay/notify", body.get("notify_url").stringValue());
+        assertFalse(body.has("buyer_id"));
+        assertFalse(body.has("goods_detail"));
+    }
+
+    /**
+     * 验证小程序支付要求买家标识二选一，且拒绝订单号不一致或缺少交易号的响应。
+     */
+    @Test
+    void jsapiPayRequiresExactlyOneBuyerAndMatchingResponse() {
+        assertThrows(IllegalArgumentException.class, () -> JsapiPayRequest.builder()
+                .outTradeNo("ORDER_001").totalAmount(1).subject("订单").build());
+        assertThrows(IllegalArgumentException.class, () -> JsapiPayRequest.builder()
+                .outTradeNo("ORDER_001").totalAmount(1).subject("订单")
+                .buyerOpenId("open-id").buyerId("2088102146225135").build());
+
+        JsapiPayRequest request = JsapiPayRequest.builder()
+                .outTradeNo("ORDER_001").totalAmount(1).subject("订单")
+                .buyerId("2088102146225135").build();
+        JsapiPayClient jsapiPay = client.jsapiPay(URI.create("https://pay.example.com/alipay/notify"));
+
+        server.enqueueSigned("""
+                {"trade_no":"2026000000000000001","out_trade_no":"ORDER_002"}
+                """);
+        AlipaySecurityException mismatch = assertThrows(AlipaySecurityException.class,
+                () -> jsapiPay.create(request));
+        assertEquals(AlipaySecurityFailure.RESPONSE_MISMATCH, mismatch.failure());
+        assertEquals("2088102146225135", requestBody(server.takeRequest()).get("buyer_id").stringValue());
+
+        server.enqueueSigned("""
+                {"out_trade_no":"ORDER_001"}
+                """);
+        assertThrows(AlipayProtocolException.class, () -> jsapiPay.create(request));
     }
 
     /**

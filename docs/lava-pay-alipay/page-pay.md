@@ -42,9 +42,9 @@ PagePayRequest request = PagePayRequest.builder()
 支付宝建议优先使用 POST 模式：
 
 ```java
-PagePayForm form = pagePay.createForm(request);
+PayForm form = pagePay.createForm(request);
 
-httpResponse.setContentType(PagePayForm.CONTENT_TYPE);
+httpResponse.setContentType(PayForm.CONTENT_TYPE);
 httpResponse.getWriter().write(form.html());
 ```
 
@@ -73,7 +73,7 @@ PagePayRequest request = PagePayRequest.builder()
         .subject("订单 ORDER_001")
         .qrPayMode(PagePayQrMode.CUSTOM_WIDTH)
         .qrcodeWidth(220)
-        .addGoodsDetail(PagePayGoodsDetail.builder()
+        .addGoodsDetail(GoodsDetail.builder()
                 .goodsId("SKU_001")
                 .goodsName("商品名称")
                 .quantity(2)

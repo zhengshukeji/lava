@@ -183,6 +183,15 @@ final class WechatPayTestServer implements AutoCloseable {
     }
 
     /**
+     * 返回已捕获但尚未取出的请求数量，用于断言客户端在本地校验失败时未发出请求。
+     *
+     * @return 队列中的请求数量
+     */
+    int requestCount() {
+        return requests.size();
+    }
+
+    /**
      * 在最多 5 秒内取出下一个已捕获请求，避免客户端未发请求时无限阻塞。
      *
      * @return 最早到达且尚未取出的请求

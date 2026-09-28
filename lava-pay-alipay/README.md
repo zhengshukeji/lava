@@ -1,7 +1,7 @@
 # lava-pay-alipay
 
 `lava-pay-alipay` 是面向支付宝 OpenAPI 普通商户公钥模式的同步 Java 工具包，不依赖支付宝官方 SDK。模块基于 Lava HTTP、
-JSON、Crypto 与 JDK RSA 能力，实现 OpenAPI V3 REST 请求签名、响应验签、电脑网站支付表单、交易查询与关闭、退款、
+JSON、Crypto 与 JDK RSA 能力，实现 OpenAPI V3 REST 请求签名、响应验签、电脑网站与手机网站支付表单、小程序支付交易创建、交易查询与关闭、退款、
 退款查询、银行卡冲退通知解析和账单下载地址查询。
 
 ```xml
@@ -19,6 +19,8 @@ JSON、Crypto 与 JDK RSA 能力，实现 OpenAPI V3 REST 请求签名、响应�
 
 - 自研普通商户、RSA2 公钥模式；
 - `alipay.trade.page.pay` 电脑网站支付 AOP POST 表单和 GET 支付 URL；
+- `alipay.trade.wap.pay` 手机网站支付 AOP POST 表单和 GET 支付 URL；
+- OpenAPI V3 `alipay.trade.create` 小程序支付（JSAPI）交易创建；
 - OpenAPI V3 `alipay.trade.query` 查单和 `alipay.trade.close` 关单；
 - OpenAPI V3 `alipay.trade.refund` 退款和 `alipay.trade.fastpay.refund.query` 退款查询；
 - 支付结果通知和 `alipay.trade.refund.depositback.completed` 银行卡冲退通知；
@@ -29,14 +31,14 @@ JSON、Crypto 与 JDK RSA 能力，实现 OpenAPI V3 REST 请求签名、响应�
 | 能力 | 官方实际协议 |
 | --- | --- |
 | 页面支付 | `POST /gateway.do` AOP 自动提交 HTML 表单，或 `GET /gateway.do` AOP 支付 URL |
-| 查单、关单、退款、退款查询 | `POST /v3/...`，JSON + V3 Authorization |
+| 小程序交易创建、查单、关单、退款、退款查询 | `POST /v3/...`，JSON + V3 Authorization |
 | 账单下载地址 | `GET /v3/...`，query + V3 Authorization |
 | 支付、退款冲退通知 | URL 编码表单 + RSA2 V1 参数验签 |
 
-支付宝官方 `alipay-sdk-java-v3` 和当前页面支付文档均未提供 `/v3/alipay/trade/page/pay`。工具包不会构造不存在的 REST
+支付宝官方 `alipay-sdk-java-v3` 和当前页面支付文档均未提供 `/v3/alipay/trade/page/pay` 与 `/v3/alipay/trade/wap/pay`。工具包不会构造不存在的 REST
 端点；除页面支付和通知这两个官方协议例外外，服务端 API 均使用真正的 OpenAPI V3。
 
-当前不包含服务商代调用、公钥证书模式、直付通支付交易、分账、花呗分期、指定买家、开票、账单文件下载及解析。模块只负责协议适配，
+当前不包含 App 支付、当面付、服务商代调用、公钥证书模式、直付通支付交易、分账、花呗分期、指定买家、开票、账单文件下载及解析。模块只负责协议适配，
 不负责业务支付订单、业务幂等、渠道路由、通知持久化、轮询补偿和对账差异处理。
 
 ## 创建客户端
@@ -75,20 +77,20 @@ AlipayClient client = AlipayClient.builder()
 页面支付没有 REST V3 端点。它按支付宝官方 `pageExecute` 语义，在商户服务端生成完整的 AOP 签名请求；支付宝建议优先使用 POST 自动提交 HTML 表单：
 
 ```java
-import com.zhengshuyun.lava.pay.alipay.pagepay.PagePayForm;
+import com.zhengshuyun.lava.pay.alipay.order.PayForm;
 import com.zhengshuyun.lava.pay.alipay.pagepay.PagePayRequest;
 
 var pagePay = client.pagePay(
         "https://pay.example.com/alipay/notify",
         "https://pay.example.com/alipay/return");
 
-PagePayForm form = pagePay.createForm(PagePayRequest.builder()
+PayForm form = pagePay.createForm(PagePayRequest.builder()
         .outTradeNo("ORDER_001")
         .totalAmount(100) // 单位：分
         .subject("订单 ORDER_001")
         .build());
 
-httpResponse.setContentType(PagePayForm.CONTENT_TYPE);
+httpResponse.setContentType(PayForm.CONTENT_TYPE);
 httpResponse.getWriter().write(form.html());
 ```
 
@@ -112,6 +114,51 @@ GET URL 含完整业务参数和签名，不能写入日志、监控标签或分
 `integration_type` 固定为 `PCWEB`；应用 ID、`notify_url` 和 `return_url` 均由客户端参与签名并注入。
 
 前台同步返回只用于页面展示，不代表支付成功。`return_url` 处理逻辑应主动调用查单接口确认结果。
+
+## 手机网站支付
+
+手机浏览器中的 H5 页面使用 `alipay.trade.wap.pay`：已安装支付宝时唤起客户端，否则进入支付宝 H5 收银台。用法与电脑网站支付一致，
+同样返回 `PayForm` 或 GET URL：
+
+```java
+import com.zhengshuyun.lava.pay.alipay.wappay.WapPayRequest;
+
+var wapPay = client.wapPay(
+        "https://pay.example.com/alipay/notify",
+        "https://pay.example.com/alipay/return");
+
+PayForm form = wapPay.createForm(WapPayRequest.builder()
+        .outTradeNo("ORDER_002")
+        .totalAmount(100) // 单位：分
+        .subject("订单 ORDER_002")
+        .quitUrl("https://shop.example.com/order/ORDER_002") // 可选：用户中途退出时返回的页面
+        .build());
+```
+
+`product_code` 固定为 `QUICK_WAP_WAY`。电脑网站支付的二维码选项在手机网站支付中不存在。
+
+## 小程序支付
+
+支付宝小程序使用 OpenAPI V3 `alipay.trade.create`（产品码 `JSAPI_PAY`）创建交易，前端再用返回的交易号唤起收银台：
+
+```java
+import com.zhengshuyun.lava.pay.alipay.jsapipay.JsapiPayRequest;
+import com.zhengshuyun.lava.pay.alipay.jsapipay.JsapiPayResult;
+
+JsapiPayResult result = client.jsapiPay("https://pay.example.com/alipay/notify")
+        .create(JsapiPayRequest.builder()
+                .outTradeNo("ORDER_003")
+                .totalAmount(100) // 单位：分
+                .subject("订单 ORDER_003")
+                .buyerOpenId("小程序获取的买家 OpenID")
+                .build());
+
+// 小程序前端：my.tradePay({ tradeNO: result.tradeNo() })
+```
+
+`buyerOpenId` 与 `buyerId`（2088 开头的用户 ID，仅限按 UID 配置的存量应用）必须且只能配置一个。小程序与当前 OpenAPI
+应用不是同一个时，通过 `opAppId(...)` 传入小程序 APPID。响应中的订单号会与请求核对，不一致时抛出 `AlipaySecurityException`。
+交易创建成功不代表已付款，`my.tradePay` 的回调也不能作为入账依据，支付结果以异步通知或查单为准。
 
 ## 支付通知
 

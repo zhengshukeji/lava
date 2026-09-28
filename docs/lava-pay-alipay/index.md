@@ -7,6 +7,8 @@
 | 能力 | 支付宝接口 | 协议 |
 | --- | --- | --- |
 | 电脑网站支付 | `alipay.trade.page.pay` | AOP `gateway.do`，POST 表单或 GET URL |
+| 手机网站支付 | `alipay.trade.wap.pay` | AOP `gateway.do`，POST 表单或 GET URL |
+| 小程序支付 | `alipay.trade.create` | OpenAPI V3 REST |
 | 交易查询 | `alipay.trade.query` | OpenAPI V3 REST |
 | 交易关闭 | `alipay.trade.close` | OpenAPI V3 REST |
 | 退款 | `alipay.trade.refund` | OpenAPI V3 REST |
@@ -15,7 +17,7 @@
 | 支付通知 | `trade_status_sync` | URL 编码表单 + RSA2 V1 参数验签 |
 | 银行卡冲退通知 | `alipay.trade.refund.depositback.completed` | URL 编码表单 + RSA2 V1 参数验签 |
 
-支付宝目前没有 `/v3/alipay/trade/page/pay`。页面支付继续使用官方 AOP 页面跳转协议；查单、关单、退款和账单使用真正的 REST V3。这是支付宝接口本身的协议边界，不是模块提供的兼容模式。
+支付宝目前没有 `/v3/alipay/trade/page/pay` 与 `/v3/alipay/trade/wap/pay`。页面支付继续使用官方 AOP 页面跳转协议；小程序交易创建、查单、关单、退款和账单使用真正的 REST V3。这是支付宝接口本身的协议边界，不是模块提供的兼容模式。
 
 ## 不包含的能力
 
@@ -23,7 +25,7 @@
 
 - 服务商代调用和公钥证书模式；
 - 直付通支付交易、分账、花呗分期和指定买家；
-- App 支付、手机网站支付、JSAPI 支付和当面付；
+- App 支付和当面付；
 - 业务订单、幂等持久化、渠道路由、轮询补偿；
 - 账单文件下载、解压、解析与差异处理。
 
@@ -34,6 +36,8 @@
 | 方法 | 业务入口 |
 | --- | --- |
 | `pagePay(...)` | 电脑网站支付 |
+| `wapPay(...)` | 手机网站支付 |
+| `jsapiPay(...)` | 小程序支付 |
 | `transactions()` | 查单和关单 |
 | `refunds()` | 退款和退款查询 |
 | `bills()` | 账单下载地址查询 |

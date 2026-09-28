@@ -10,9 +10,14 @@ import com.zhengshuyun.lava.http.HttpClient;
 import com.zhengshuyun.lava.http.HttpRequest;
 import com.zhengshuyun.lava.json.JsonCodec;
 import com.zhengshuyun.lava.pay.wechat.exception.*;
-import com.zhengshuyun.lava.pay.wechat.nativepay.NativePrepayDetail;
-import com.zhengshuyun.lava.pay.wechat.nativepay.NativePrepayRequest;
+import com.zhengshuyun.lava.pay.wechat.h5.H5PrepayResponse;
+import com.zhengshuyun.lava.pay.wechat.jsapi.JsapiPayParams;
+import com.zhengshuyun.lava.pay.wechat.jsapi.JsapiPrepayResponse;
 import com.zhengshuyun.lava.pay.wechat.nativepay.NativePrepayResponse;
+import com.zhengshuyun.lava.pay.wechat.prepay.H5Type;
+import com.zhengshuyun.lava.pay.wechat.prepay.PrepayDetail;
+import com.zhengshuyun.lava.pay.wechat.prepay.PrepayRequest;
+import com.zhengshuyun.lava.pay.wechat.prepay.PrepaySceneInfo;
 import com.zhengshuyun.lava.pay.wechat.refund.Refund;
 import com.zhengshuyun.lava.pay.wechat.refund.RefundRequest;
 import com.zhengshuyun.lava.pay.wechat.transaction.TradeState;
@@ -136,12 +141,12 @@ class WechatPayClientTest {
     void nativePrepayInjectsApplicationConfigurationAndSignsExactBody() {
         server.enqueueSigned(200,
                 "{\"code_url\":\"weixin://wxpay/bizpayurl?pr=test\"}");
-        NativePrepayRequest request = NativePrepayRequest.builder()
+        PrepayRequest request = PrepayRequest.builder()
                 .description("测试订单")
                 .outTradeNo("ORDER_001")
                 .amount(100)
                 .profitSharing(false)
-                .detail(NativePrepayDetail.builder()
+                .detail(PrepayDetail.builder()
                         .costPrice(100)
                         .build())
                 .build();
@@ -182,13 +187,13 @@ class WechatPayClientTest {
         var nativePay = client.application(APPID, "https://example.com/pay/notify").nativePay();
         Instant expireAt = Instant.parse("2026-09-28T07:23:39.505123456Z");
 
-        nativePay.prepay(NativePrepayRequest.builder()
+        nativePay.prepay(PrepayRequest.builder()
                 .description("测试订单")
                 .outTradeNo("ORDER_001")
                 .amount(100)
                 .timeExpire(expireAt.atOffset(ZoneOffset.ofHours(8)))
                 .build());
-        nativePay.prepay(NativePrepayRequest.builder()
+        nativePay.prepay(PrepayRequest.builder()
                 .description("测试订单")
                 .outTradeNo("ORDER_002")
                 .amount(100)
@@ -201,6 +206,111 @@ class WechatPayClientTest {
         JsonNode utc = JsonCodec.defaultCodec().readTree(
                 new String(server.takeRequest().body(), StandardCharsets.UTF_8));
         assertEquals("2026-09-28T07:23:39+00:00", utc.get("time_expire").stringValue());
+    }
+
+    /**
+     * 验证 JSAPI 下单携带 payer.openid，并按「appId、时间戳、随机串、package」逐行签名生成调起支付参数。
+     */
+    @Test
+    void jsapiPrepayWithRequestPaymentSignsFrontendParameters() {
+        server.enqueueSigned(200, "{\"prepay_id\":\"wx2026082900000001\"}");
+
+        JsapiPayParams params = client
+                .application(APPID, "https://example.com/pay/notify")
+                .jsapiPay().prepayWithRequestPayment("o-openid-001", PrepayRequest.builder()
+                        .description("测试订单")
+                        .outTradeNo("ORDER_001")
+                        .amount(100)
+                        .build());
+
+        WechatPayTestServer.CapturedRequest captured = server.takeRequest();
+        assertEquals("/v3/pay/transactions/jsapi", captured.target());
+        JsonNode body = JsonCodec.defaultCodec().readTree(
+                new String(captured.body(), StandardCharsets.UTF_8));
+        assertEquals("o-openid-001", body.get("payer").get("openid").stringValue());
+        assertEquals(APPID, body.get("appid").stringValue());
+        assertTrue(verifyRequestSignature(captured));
+
+        assertEquals(APPID, params.appId());
+        assertEquals(Long.toString(CLOCK.instant().getEpochSecond()), params.timeStamp());
+        assertEquals(REQUEST_NONCE, params.nonceStr());
+        assertEquals("prepay_id=wx2026082900000001", params.packageValue());
+        assertEquals("RSA", params.signType());
+        String message = APPID + '\n' + params.timeStamp() + '\n' + params.nonceStr() + '\n'
+                + params.packageValue() + '\n';
+        assertTrue(CryptoUtils.rsaSha256Verify(merchantKeys.getPublic(),
+                message.getBytes(StandardCharsets.UTF_8),
+                Base64.getDecoder().decode(params.paySign())));
+
+        // 前端直接消费 JSON，package 字段名必须保持官方拼写
+        JsonNode json = JsonCodec.defaultCodec().readTree(JsonCodec.defaultCodec().write(params));
+        assertEquals("prepay_id=wx2026082900000001", json.get("package").stringValue());
+        assertFalse(json.has("packageValue"));
+    }
+
+    /**
+     * 验证 JSAPI 下单拒绝空白 OpenID，且响应缺少 prepay_id 时判定为协议错误。
+     */
+    @Test
+    void jsapiPrepayRejectsResponseWithoutPrepayId() {
+        server.enqueueSigned(200, "{}");
+        var jsapiPay = client.application(APPID, "https://example.com/pay/notify").jsapiPay();
+
+        assertThrows(IllegalArgumentException.class, () -> jsapiPay.prepay(" ",
+                PrepayRequest.builder().description("测试订单").outTradeNo("ORDER_001")
+                        .amount(100).build()));
+        assertThrows(WechatPayProtocolException.class, () -> jsapiPay.prepay("o-openid-001",
+                PrepayRequest.builder().description("测试订单").outTradeNo("ORDER_001")
+                        .amount(100).build()));
+    }
+
+    /**
+     * 验证 H5 下单输出 scene_info.h5_info、不输出 payer，并返回 h5_url。
+     */
+    @Test
+    void h5PrepaySendsSceneInfoAndReturnsH5Url() {
+        server.enqueueSigned(200,
+                "{\"h5_url\":\"https://wx.tenpay.com/cgi-bin/mmpayweb-bin/checkmweb?prepay_id=wx01\"}");
+
+        H5PrepayResponse response = client
+                .application(APPID, "https://example.com/pay/notify")
+                .h5Pay().prepay(PrepayRequest.builder()
+                        .description("测试订单")
+                        .outTradeNo("ORDER_001")
+                        .amount(100)
+                        .sceneInfo(PrepaySceneInfo.builder()
+                                .payerClientIp("203.0.113.8")
+                                .h5Info(PrepaySceneInfo.H5Info.of(H5Type.WAP))
+                                .build())
+                        .build());
+
+        assertEquals("wx.tenpay.com", response.h5Url().getHost());
+        WechatPayTestServer.CapturedRequest captured = server.takeRequest();
+        assertEquals("/v3/pay/transactions/h5", captured.target());
+        JsonNode body = JsonCodec.defaultCodec().readTree(
+                new String(captured.body(), StandardCharsets.UTF_8));
+        assertFalse(body.has("payer"));
+        JsonNode sceneInfo = body.get("scene_info");
+        assertEquals("203.0.113.8", sceneInfo.get("payer_client_ip").stringValue());
+        assertEquals("Wap", sceneInfo.get("h5_info").get("type").stringValue());
+        assertFalse(sceneInfo.get("h5_info").has("app_name"));
+        assertTrue(verifyRequestSignature(captured));
+    }
+
+    /**
+     * 验证 H5 下单在发送请求前拒绝缺少场景信息或 H5 场景信息的请求。
+     */
+    @Test
+    void h5PrepayRequiresH5SceneInfo() {
+        var h5Pay = client.application(APPID, "https://example.com/pay/notify").h5Pay();
+
+        assertThrows(IllegalArgumentException.class, () -> h5Pay.prepay(PrepayRequest.builder()
+                .description("测试订单").outTradeNo("ORDER_001").amount(100).build()));
+        assertThrows(IllegalArgumentException.class, () -> h5Pay.prepay(PrepayRequest.builder()
+                .description("测试订单").outTradeNo("ORDER_001").amount(100)
+                .sceneInfo(PrepaySceneInfo.builder().payerClientIp("203.0.113.8").build())
+                .build()));
+        assertEquals(0, server.requestCount());
     }
 
     /**
@@ -394,7 +504,7 @@ class WechatPayClientTest {
 
         WechatPaySecurityException failure = assertThrows(WechatPaySecurityException.class,
                 () -> client.application(APPID, "https://example.com/pay/notify")
-                        .nativePay().prepay(NativePrepayRequest.builder()
+                        .nativePay().prepay(PrepayRequest.builder()
                                 .description("测试")
                                 .outTradeNo("ORDER_001")
                                 .amount(1)
@@ -420,7 +530,7 @@ class WechatPayClientTest {
 
         WechatPaySecurityException failure = assertThrows(WechatPaySecurityException.class,
                 () -> client.application(APPID, "https://example.com/pay/notify")
-                        .nativePay().prepay(NativePrepayRequest.builder()
+                        .nativePay().prepay(PrepayRequest.builder()
                                 .description("测试")
                                 .outTradeNo("ORDER_001")
                                 .amount(1)
@@ -438,7 +548,7 @@ class WechatPayClientTest {
 
         assertThrows(WechatPayProtocolException.class,
                 () -> client.application(APPID, "https://example.com/pay/notify")
-                        .nativePay().prepay(NativePrepayRequest.builder()
+                        .nativePay().prepay(PrepayRequest.builder()
                                 .description("测试")
                                 .outTradeNo("ORDER_001")
                                 .amount(1)
@@ -459,7 +569,7 @@ class WechatPayClientTest {
                 WechatPayProtocolException.class,
                 () -> client.application(APPID, "https://example.com/pay/notify")
                         .nativePay()
-                        .prepay(NativePrepayRequest.builder()
+                        .prepay(PrepayRequest.builder()
                                 .description("测试")
                                 .outTradeNo("ORDER_001")
                                 .amount(1)

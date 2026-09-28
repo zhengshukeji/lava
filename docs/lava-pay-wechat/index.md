@@ -6,7 +6,9 @@
 
 | 能力 | 说明 |
 | --- | --- |
-| Native 支付 | 下单并返回 `code_url` |
+| Native 支付 | PC 扫码：下单并返回 `code_url` |
+| JSAPI 支付 | 公众号网页和小程序：下单并生成调起支付签名 |
+| H5 支付 | 微信外手机浏览器：下单并返回 `h5_url` |
 | 交易 | 按商户订单号或微信支付订单号查单，关闭未支付订单 |
 | 退款 | 正常退款申请和退款查询 |
 | 通知 | 支付及退款通知验签、AES-GCM 解密和解析 |
@@ -22,13 +24,13 @@
 - 商户 API 私钥签名；
 - APIv3 密钥解密通知。
 
-当前不包含服务商模式、平台证书验签、异常退款、二维码图片渲染和账单 CSV 字段解析。
+当前不包含 APP 支付、服务商模式、平台证书验签、异常退款、二维码图片渲染和账单 CSV 字段解析。
 
 ## 业务入口
 
 | 根客户端方法 | 入口 |
 | --- | --- |
-| `application(appid, notifyUrl)` | 绑定 APPID 的 Native 支付上下文 |
+| `application(appid, notifyUrl)` | 绑定 APPID 的下单上下文：`nativePay()`、`jsapiPay()`、`h5Pay()` |
 | `transactions()` | 查单和关单 |
 | `refunds()` | 退款和退款查询 |
 | `notifications()` | 支付和退款通知 |

@@ -318,6 +318,36 @@ public final class WechatPayTransport implements AutoCloseable {
     }
 
     /**
+     * 为 JSAPI 调起支付生成商户私钥签名。
+     *
+     * <p>时间戳与随机串取自与请求签名相同的时钟和随机串供应器，保证测试可复现；
+     * 签名原文依次为 APPID、时间戳、随机串和 {@code package} 值。</p>
+     *
+     * @param appid        调起支付的应用 ID
+     * @param packageValue 形如 {@code prepay_id=xxx} 的订单详情扩展字符串
+     * @return 时间戳、随机串与签名
+     * @throws IllegalStateException 根客户端已经关闭
+     */
+    public PaymentSignature signPayment(String appid, String packageValue) {
+        ensureOpen();
+        String timestamp = Long.toString(clock.instant().getEpochSecond());
+        String nonce = nonceSupplier.get();
+        String signature = WechatPayCryptoUtils.signLines(
+                merchantPrivateKey, appid, timestamp, nonce, packageValue);
+        return new PaymentSignature(timestamp, nonce, signature);
+    }
+
+    /**
+     * 前端调起支付所需的签名三元组。
+     *
+     * @param timestamp Unix 秒时间戳文本
+     * @param nonce     随机串
+     * @param signature Base64 编码的 RSA-SHA256 签名
+     */
+    public record PaymentSignature(String timestamp, String nonce, String signature) {
+    }
+
+    /**
      * 确保根客户端仍处于可用状态。
      *
      * @throws IllegalStateException 根客户端已经关闭

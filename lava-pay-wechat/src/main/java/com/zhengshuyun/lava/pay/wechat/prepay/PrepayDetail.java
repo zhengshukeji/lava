@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.zhengshuyun.lava.pay.wechat.nativepay;
+package com.zhengshuyun.lava.pay.wechat.prepay;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
@@ -25,13 +25,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Native 下单的可选商品详情。
+ * 下单共用的可选商品详情。
  *
  * @param costPrice 订单原价，单位为分
  * @param invoiceId 商品小票 ID
  * @param goodsDetail 单品列表
  */
-public record NativePrepayDetail(
+public record PrepayDetail(
         @JsonProperty("cost_price") @Nullable Long costPrice,
         @JsonProperty("invoice_id") @Nullable String invoiceId,
         @JsonProperty("goods_detail") @Nullable List<GoodsDetail> goodsDetail) {
@@ -39,7 +39,7 @@ public record NativePrepayDetail(
     /**
      * 校验商品详情并复制单品列表。
      */
-    public NativePrepayDetail {
+    public PrepayDetail {
         // 1. 分别校验可选的订单原价和小票标识。
         if (costPrice != null) {
             WechatPayValidationUtils.requirePositive(costPrice, "costPrice");
@@ -124,14 +124,14 @@ public record NativePrepayDetail(
          *
          * @return 商品详情
          */
-        public NativePrepayDetail build() {
-            return new NativePrepayDetail(costPrice, invoiceId,
+        public PrepayDetail build() {
+            return new PrepayDetail(costPrice, invoiceId,
                     goodsDetail.isEmpty() ? null : List.copyOf(goodsDetail));
         }
     }
 
     /**
-     * Native 下单商品详情中的单品信息。
+     * 下单商品详情中的单品信息。
      *
      * @param merchantGoodsId 商户侧商品编码
      * @param wechatpayGoodsId 微信支付商品编码

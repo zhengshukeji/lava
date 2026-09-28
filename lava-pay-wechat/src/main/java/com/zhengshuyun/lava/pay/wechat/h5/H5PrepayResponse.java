@@ -14,10 +14,19 @@
  * limitations under the License.
  */
 
-/**
- * 支付宝 OpenAPI V3 支付协议适配，包含官方仍要求使用 AOP 的电脑网站与手机网站页面支付。
- */
-@NullMarked
-package com.zhengshuyun.lava.pay.alipay;
+package com.zhengshuyun.lava.pay.wechat.h5;
 
-import org.jspecify.annotations.NullMarked;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.net.URI;
+
+/**
+ * H5 下单结果。
+ *
+ * @param h5Url 支付跳转链接，有效期 5 分钟；前端跳转到该地址拉起微信收银台，
+ *              可追加 {@code redirect_url} 参数指定支付后返回页面
+ */
+@JsonIgnoreProperties(ignoreUnknown = true)
+public record H5PrepayResponse(@JsonProperty("h5_url") URI h5Url) {
+}

@@ -23,7 +23,9 @@ import java.io.IOException;
  */
 public final class SizeLimitExceededException extends IOException {
 
+    /** 配置允许读取的最大字节数。 */
     private final long maximumBytes;
+    /** 抛出异常时已观测到的流大小下界。 */
     private final long observedBytes;
 
     SizeLimitExceededException(long maximumBytes, long observedBytes) {

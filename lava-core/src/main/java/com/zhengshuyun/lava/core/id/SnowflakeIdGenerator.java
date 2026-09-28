@@ -35,8 +35,11 @@ import java.time.Instant;
  */
 public final class SnowflakeIdGenerator {
 
+    /** Lava 纪元：雪花 ID 时间戳的起点（2026-01-01T00:00:00Z）。 */
     public static final Instant LAVA_EPOCH = Instant.parse("2026-01-01T00:00:00Z");
+    /** 工作节点标识的最小取值。 */
     public static final int MIN_WORKER_ID = 0;
+    /** 工作节点标识的最大取值（10 位字段的自然上限）。 */
     public static final int MAX_WORKER_ID = 1023;
 
     private static final int WORKER_BITS = 10;

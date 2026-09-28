@@ -64,6 +64,10 @@ public final class HttpProxy {
 
     /**
      * 创建固定代理 (无认证)
+     *
+     * @param host 代理主机名
+     * @param port 代理端口
+     * @return 新的 HTTP 代理配置
      */
     public static HttpProxy of(String host, int port) {
         return builder()
@@ -73,6 +77,12 @@ public final class HttpProxy {
 
     /**
      * 创建固定代理 (带认证)
+     *
+     * @param host     代理主机名
+     * @param port     代理端口
+     * @param username 代理认证用户名
+     * @param password 代理认证密码
+     * @return 新的带认证 HTTP 代理配置
      */
     public static HttpProxy of(String host, int port, String username, String password) {
         return builder()
@@ -83,6 +93,10 @@ public final class HttpProxy {
 
     /**
      * 创建 SOCKS 代理
+     *
+     * @param host 代理主机名
+     * @param port 代理端口
+     * @return 新的 SOCKS 代理配置
      */
     public static HttpProxy socks(String host, int port) {
         return builder()
@@ -90,10 +104,18 @@ public final class HttpProxy {
                 .build();
     }
 
+    /**
+     * 创建构建器
+     *
+     * @return 新的构建器
+     */
     public static Builder builder() {
         return new Builder();
     }
 
+    /**
+     * {@link HttpProxy} 的构建器
+     */
     public static final class Builder {
 
         private @Nullable ProxySelector proxySelector;
@@ -101,6 +123,10 @@ public final class HttpProxy {
 
         /**
          * 设置 HTTP 代理
+         *
+         * @param host 代理主机名
+         * @param port 代理端口
+         * @return 当前构建器
          */
         public Builder http(String host, int port) {
             Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress(host, port));
@@ -110,6 +136,10 @@ public final class HttpProxy {
 
         /**
          * 设置 SOCKS 代理
+         *
+         * @param host 代理主机名
+         * @param port 代理端口
+         * @return 当前构建器
          */
         public Builder socks(String host, int port) {
             Proxy proxy = new Proxy(Proxy.Type.SOCKS, new InetSocketAddress(host, port));
@@ -119,6 +149,10 @@ public final class HttpProxy {
 
         /**
          * 设置代理认证
+         *
+         * @param username 代理认证用户名
+         * @param password 代理认证密码
+         * @return 当前构建器
          */
         public Builder auth(String username, String password) {
             this.authenticator = new ProxyAuthenticator(username, password);
@@ -127,6 +161,9 @@ public final class HttpProxy {
 
         /**
          * 自定义 ProxySelector
+         *
+         * @param proxySelector 代理选择器
+         * @return 当前构建器
          */
         public Builder proxySelector(ProxySelector proxySelector) {
             this.proxySelector = proxySelector;
@@ -145,6 +182,11 @@ public final class HttpProxy {
             return this;
         }
 
+        /**
+         * 构建 HttpProxy 实例
+         *
+         * @return 新的代理配置
+         */
         public HttpProxy build() {
             return new HttpProxy(this);
         }

@@ -102,6 +102,8 @@ public final class HttpMethod {
      * 具体来说, 此方法返回包含 {@link #GET}、{@link #HEAD}、
      * {@link #POST}、{@link #PUT}、{@link #PATCH}、{@link #DELETE}、
      * {@link #OPTIONS} 和 {@link #TRACE} 的数组.
+     *
+     * @return 包含全部标准方法的新数组, 修改不影响内部状态
      */
     public static HttpMethod[] values() {
         HttpMethod[] copy = new HttpMethod[values.length];
@@ -139,6 +141,8 @@ public final class HttpMethod {
 
     /**
      * 返回此方法的名称, 例如 "GET"、"POST".
+     *
+     * @return 大写的方法名
      */
     public String name() {
         return name;
@@ -152,6 +156,8 @@ public final class HttpMethod {
      * 这里刻意自己实现而不复用 {@code okhttp3.internal.http.HttpMethod}:
      * 那是 OkHttp 的 internal 包, 不属于公开 API 契约, 随时可能改签名或改包路径,
      * 基础库不应该把稳定性押在上游内部实现上.
+     *
+     * @return 允许携带请求体时返回 true
      */
     public boolean permitsRequestBody() {
         return !("GET".equals(name) || "HEAD".equals(name));
@@ -163,6 +169,7 @@ public final class HttpMethod {
      * 语义与 OkHttp 一致, 覆盖 POST、PUT、PATCH、QUERY 以及 WebDAV 的 PROPPATCH、REPORT.
      *
      * @see #permitsRequestBody()
+     * @return 必须携带请求体时返回 true
      */
     public boolean requiresRequestBody() {
         return switch (name) {

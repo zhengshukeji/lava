@@ -22,4 +22,9 @@ package com.zhengshuyun.lava.dingtalk;
  * <p>模块建设中，当前尚未开放功能；后续通讯录、消息等开放接口能力将挂载在本客户端上。
  */
 public final class DingtalkClient {
+
+    /** 模块建设中，暂无实例化入口；开放接口能力上线后由工厂方法创建实例。 */
+    private DingtalkClient() {
+        throw new UnsupportedOperationException("Not yet implemented");
+    }
 }

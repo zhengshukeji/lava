@@ -50,6 +50,9 @@ public record HttpCallMetadata(
         int statusCode,
         String statusMessage) {
 
+    /**
+     * 紧凑构造器：校验必填组件，并原地脱敏 URL 与请求/响应头。
+     */
     public HttpCallMetadata {
         ValidationUtils.requireNonNull(requestId, "requestId");
         ValidationUtils.requireNonNull(method, "method");

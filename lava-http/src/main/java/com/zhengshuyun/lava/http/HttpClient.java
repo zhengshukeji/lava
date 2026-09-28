@@ -145,7 +145,11 @@ public final class HttpClient implements AutoCloseable {
     }
 
     /**
-     * 使用新命名的单次请求选项发送缓冲请求。
+     * 使用单次请求选项执行请求并完整缓冲响应。
+     *
+     * @param request 待执行的请求
+     * @param options 单次请求选项
+     * @return HTTP 响应，包含已缓冲的响应体
      */
     public HttpResponse send(HttpRequest request, RequestOptions options) {
         RequestOptions effectiveOptions = ValidationUtils.requireNonNull(options, "options must not be null");
@@ -154,6 +158,10 @@ public final class HttpClient implements AutoCloseable {
 
     /**
      * 使用客户端 JSON 编解码器编码请求体；传入的 body 会替换 request 原有请求体。
+     *
+     * @param request 待执行的请求
+     * @param body   将被编码为 JSON 请求体的对象
+     * @return HTTP 响应，包含已缓冲的响应体
      */
     public HttpResponse sendJson(HttpRequest request, Object body) {
         return send(ValidationUtils.requireNonNull(request, "request must not be null")
@@ -162,6 +170,12 @@ public final class HttpClient implements AutoCloseable {
 
     /**
      * 发送 JSON 并在成功时直接解码目标类型。
+     *
+     * @param <T>          目标解码类型
+     * @param request      待执行的请求
+     * @param body         将被编码为 JSON 请求体的对象
+     * @param responseType 响应体解码目标类型
+     * @return 解码后的目标对象
      */
     public <T> T sendJson(HttpRequest request, Object body, Class<T> responseType) {
         ValidationUtils.requireNonNull(request, "request must not be null");
@@ -172,6 +186,12 @@ public final class HttpClient implements AutoCloseable {
 
     /**
      * 使用泛型类型信息发送并解码 JSON。
+     *
+     * @param <T>          目标解码类型
+     * @param request      待执行的请求
+     * @param body         将被编码为 JSON 请求体的对象
+     * @param responseType 捕获泛型的响应体解码目标类型
+     * @return 解码后的目标对象
      */
     public <T> T sendJson(HttpRequest request, Object body, TypeReference<T> responseType) {
         ValidationUtils.requireNonNull(request, "request must not be null");
@@ -576,11 +596,17 @@ public final class HttpClient implements AutoCloseable {
      * 客户端级配置；单次调用的超时属于 {@link RequestOptions}。
      */
     public static final class Builder {
+        /** 建立连接的默认超时时间；零表示不限制。 */
         public static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(10);
+        /** 读取响应数据的默认超时时间；零表示不限制。 */
         public static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(30);
+        /** 写出请求数据的默认超时时间；零表示不限制。 */
         public static final Duration DEFAULT_WRITE_TIMEOUT = Duration.ofSeconds(10);
+        /** 单次 HTTP 调用的默认总超时时间；零表示不限制。 */
         public static final Duration DEFAULT_CALL_TIMEOUT = Duration.ofSeconds(60);
+        /** 连接池允许保留的最大空闲连接数。 */
         public static final int DEFAULT_MAX_IDLE_CONNECTIONS = 10;
+        /** 空闲连接在连接池中的最长保留时间。 */
         public static final Duration DEFAULT_KEEP_ALIVE_DURATION = Duration.ofMinutes(5);
 
         /**
@@ -771,6 +797,9 @@ public final class HttpClient implements AutoCloseable {
 
         /**
          * 设置客户端默认基地址；请求可以继续使用绝对 URL。
+         *
+         * @param value 绝对 HTTP 或 HTTPS 地址字符串
+         * @return 当前构建器
          */
         public Builder baseUrl(String value) {
             ValidationUtils.requireNotBlank(value, "baseUrl must not be blank");
@@ -783,6 +812,9 @@ public final class HttpClient implements AutoCloseable {
 
         /**
          * 设置客户端默认基地址。
+         *
+         * @param value 绝对 HTTP 或 HTTPS URI，不能包含 query 或 fragment
+         * @return 当前构建器
          */
         public Builder baseUrl(URI value) {
             ValidationUtils.requireNonNull(value, "baseUrl must not be null");
@@ -801,6 +833,10 @@ public final class HttpClient implements AutoCloseable {
 
         /**
          * 添加一个客户端默认 header。
+         *
+         * @param name  请求头名称
+         * @param value 请求头值
+         * @return 当前构建器
          */
         public Builder defaultHeader(String name, String value) {
             defaultHeaders.set(name, value);
@@ -809,6 +845,9 @@ public final class HttpClient implements AutoCloseable {
 
         /**
          * 替换客户端全部默认 header。
+         *
+         * @param headers 替换后的默认请求头
+         * @return 当前构建器
          */
         public Builder defaultHeaders(HttpHeaders headers) {
             ValidationUtils.requireNonNull(headers, "headers must not be null");
@@ -817,6 +856,12 @@ public final class HttpClient implements AutoCloseable {
             return this;
         }
 
+        /**
+         * 为所有请求设置 Bearer 令牌，即 Authorization: Bearer 请求头。
+         *
+         * @param value Bearer 令牌
+         * @return 当前构建器
+         */
         public Builder bearerToken(String value) {
             return defaultHeader(HttpHeaderNames.AUTHORIZATION,
                     "Bearer " + ValidationUtils.requireNonNull(value, "token must not be null"));
@@ -824,6 +869,9 @@ public final class HttpClient implements AutoCloseable {
 
         /**
          * 设置 JSON 编解码器。
+         *
+         * @param value JSON 编解码器
+         * @return 当前构建器
          */
         public Builder jsonCodec(JsonCodec value) {
             jsonCodec = ValidationUtils.requireNonNull(value, "jsonCodec must not be null");
@@ -832,6 +880,9 @@ public final class HttpClient implements AutoCloseable {
 
         /**
          * 设置 SSE 的默认空闲超时；零表示不限制。
+         *
+         * @param value 非负的空闲超时时间
+         * @return 当前构建器
          */
         public Builder sseIdleTimeout(Duration value) {
             Duration timeout = ValidationUtils.requireNonNull(value,

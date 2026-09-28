@@ -41,10 +41,21 @@ public final class HttpHeaders {
         this.namesAndValues = List.copyOf(namesAndValues);
     }
 
+    /**
+     * 返回不含任何请求头的空实例。
+     *
+     * @return 空的请求头实例
+     */
     public static HttpHeaders of() {
         return EMPTY;
     }
 
+    /**
+     * 以名称/值交替排列的序列创建请求头。
+     *
+     * @param namesAndValues 交替排列的请求头名称和值，长度必须为偶数
+     * @return 新的请求头实例
+     */
     public static HttpHeaders of(String... namesAndValues) {
         ValidationUtils.requireNonNull(namesAndValues, "namesAndValues must not be null");
         if ((namesAndValues.length & 1) != 0) {
@@ -57,10 +68,21 @@ public final class HttpHeaders {
         return builder.build();
     }
 
+    /**
+     * 创建构建器。
+     *
+     * @return 新的构建器
+     */
     public static Builder builder() {
         return new Builder();
     }
 
+    /**
+     * 按大小写不敏感规则查找首个同名请求头的值。
+     *
+     * @param name 请求头名称
+     * @return 首个匹配的值，不存在时返回 {@code null}
+     */
     public @Nullable String get(String name) {
         requireName(name);
         for (int index = namesAndValues.size() - 2; index >= 0; index -= 2) {
@@ -71,6 +93,12 @@ public final class HttpHeaders {
         return null;
     }
 
+    /**
+     * 按大小写不敏感规则返回同名请求头的全部值。
+     *
+     * @param name 请求头名称
+     * @return 按插入顺序排列的全部匹配值，可能为空列表
+     */
     public List<String> values(String name) {
         requireName(name);
         List<String> result = new ArrayList<>();
@@ -82,10 +110,21 @@ public final class HttpHeaders {
         return List.copyOf(result);
     }
 
+    /**
+     * 判断是否存在指定名称的请求头。
+     *
+     * @param name 请求头名称
+     * @return 存在同名请求头时返回 true
+     */
     public boolean contains(String name) {
         return get(name) != null;
     }
 
+    /**
+     * 返回全部请求头名称；同名请求头（写法不同）只保留首次出现的写法。
+     *
+     * @return 不可修改的名称集合，按首次出现顺序排列
+     */
     public Set<String> names() {
         Set<String> canonical = new LinkedHashSet<>();
         Set<String> result = new LinkedHashSet<>();
@@ -98,19 +137,41 @@ public final class HttpHeaders {
         return Collections.unmodifiableSet(result);
     }
 
+    /**
+     * 返回请求头条目数。
+     *
+     * @return 名称/值对的数量
+     */
     public int size() {
         return namesAndValues.size() / 2;
     }
 
+    /**
+     * 判断是否不含任何请求头。
+     *
+     * @return 不含请求头时返回 true
+     */
     public boolean isEmpty() {
         return namesAndValues.isEmpty();
     }
 
+    /**
+     * 返回指定下标的请求头名称。
+     *
+     * @param index 条目下标，范围为 0 至 {@link #size()} - 1
+     * @return 对应的请求头名称
+     */
     public String name(int index) {
         checkIndex(index);
         return namesAndValues.get(index * 2);
     }
 
+    /**
+     * 返回指定下标的请求头值。
+     *
+     * @param index 条目下标，范围为 0 至 {@link #size()} - 1
+     * @return 对应的请求头值
+     */
     public String value(int index) {
         checkIndex(index);
         return namesAndValues.get(index * 2 + 1);
@@ -118,6 +179,8 @@ public final class HttpHeaders {
 
     /**
      * 返回适用于元数据和诊断的安全快照。
+     *
+     * @return 敏感值已脱敏的请求头副本
      */
     public HttpHeaders redacted() {
         if (isEmpty()) {
@@ -209,12 +272,22 @@ public final class HttpHeaders {
         return result.toString();
     }
 
+    /**
+     * {@link HttpHeaders} 的构建器；名称和值在插入时即校验。
+     */
     public static final class Builder {
         private final List<String> namesAndValues = new ArrayList<>();
 
         private Builder() {
         }
 
+        /**
+         * 追加一个请求头；同名请求头可以多次出现。
+         *
+         * @param name  请求头名称
+         * @param value 请求头值
+         * @return 当前构建器
+         */
         public Builder add(String name, String value) {
             requireName(name);
             requireValue(value);
@@ -223,6 +296,13 @@ public final class HttpHeaders {
             return this;
         }
 
+        /**
+         * 设置请求头：先移除全部同名条目再追加，保证名称唯一。
+         *
+         * @param name  请求头名称
+         * @param value 请求头值
+         * @return 当前构建器
+         */
         public Builder set(String name, String value) {
             requireName(name);
             requireValue(value);
@@ -230,6 +310,12 @@ public final class HttpHeaders {
             return add(name, value);
         }
 
+        /**
+         * 按大小写不敏感规则移除全部同名请求头。
+         *
+         * @param name 请求头名称
+         * @return 当前构建器
+         */
         public Builder remove(String name) {
             requireName(name);
             for (int index = namesAndValues.size() - 2; index >= 0; index -= 2) {
@@ -241,12 +327,24 @@ public final class HttpHeaders {
             return this;
         }
 
+        /**
+         * 追加映射中的全部请求头。
+         *
+         * @param headers 请求头名称到值的映射
+         * @return 当前构建器
+         */
         public Builder addAll(Map<String, String> headers) {
             ValidationUtils.requireNonNull(headers, "headers must not be null");
             headers.forEach(this::add);
             return this;
         }
 
+        /**
+         * 追加另一个 {@link HttpHeaders} 中的全部请求头。
+         *
+         * @param headers 待追加的请求头
+         * @return 当前构建器
+         */
         public Builder addAll(HttpHeaders headers) {
             ValidationUtils.requireNonNull(headers, "headers must not be null");
             for (int index = 0; index < headers.size(); index++) {
@@ -255,6 +353,11 @@ public final class HttpHeaders {
             return this;
         }
 
+        /**
+         * 构建不可变请求头实例。
+         *
+         * @return 新的请求头实例；不含任何条目时返回空实例
+         */
         public HttpHeaders build() {
             return namesAndValues.isEmpty() ? EMPTY : new HttpHeaders(namesAndValues);
         }

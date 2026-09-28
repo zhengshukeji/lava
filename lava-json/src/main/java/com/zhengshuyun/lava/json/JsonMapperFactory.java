@@ -45,6 +45,8 @@ public final class JsonMapperFactory {
     /**
      * 按默认约定创建 mapper：{@link Locale#ROOT}，不注册全局自定义序列化器，
      * long 值保持为 JSON number。
+     *
+     * @return 按默认约定配置的新 mapper
      */
     public static ObjectMapper defaultMapper() {
         return builder().build();

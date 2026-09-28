@@ -81,7 +81,8 @@ public final class DurationFormatter {
     /**
      * 创建 Builder 实例。
      *
-         */
+     * @return 新的构建器
+     */
     public static Builder builder() {
         return new Builder();
     }
@@ -251,6 +252,7 @@ public final class DurationFormatter {
          * 设置最大单位。
          *
          * @param largestUnit 最大单位（DAYS/HOURS/MINUTES/SECONDS/MILLIS/MICROS/NANOS）
+         * @return 当前构建器
          */
         public Builder largestUnit(ChronoUnit largestUnit) {
             this.largestUnit = ValidationUtils.requireNonNull(
@@ -262,6 +264,7 @@ public final class DurationFormatter {
          * 设置最小单位。
          *
          * @param smallestUnit 最小单位（DAYS/HOURS/MINUTES/SECONDS/MILLIS/MICROS/NANOS）
+         * @return 当前构建器
          */
         public Builder smallestUnit(ChronoUnit smallestUnit) {
             this.smallestUnit = ValidationUtils.requireNonNull(
@@ -277,7 +280,8 @@ public final class DurationFormatter {
          *
          * @param largestUnit  最大单位
          * @param smallestUnit 最小单位
-                 * @throws IllegalArgumentException 如果 largestUnit &lt; smallestUnit 或单位不支持
+         * @return 当前构建器
+         * @throws IllegalArgumentException 如果 largestUnit &lt; smallestUnit 或单位不支持
          */
         public Builder range(ChronoUnit largestUnit, ChronoUnit smallestUnit) {
             largestUnit(largestUnit).smallestUnit(smallestUnit);
@@ -308,6 +312,7 @@ public final class DurationFormatter {
          * 设置语言（中文、英文等）。
          *
          * @param locale 单位文本使用的区域设置
+         * @return 当前构建器
          */
         public Builder locale(Locale locale) {
             this.locale = ValidationUtils.requireNonNull(locale, "locale cannot be null");
@@ -317,6 +322,7 @@ public final class DurationFormatter {
         /**
          * 单位文本使用中文。
          *
+         * @return 当前构建器
          */
         public Builder chinese() {
             return locale(Locale.CHINESE);
@@ -325,6 +331,7 @@ public final class DurationFormatter {
         /**
          * 单位文本使用英文。
          *
+         * @return 当前构建器
          */
         public Builder english() {
             return locale(Locale.ENGLISH);
@@ -334,6 +341,7 @@ public final class DurationFormatter {
          * 设置是否显示零值单位。
          *
          * @param showZeroValues true：如 "1h 0m 30s"；false：如 "1h 30s"
+         * @return 当前构建器
          */
         public Builder showZeroValues(boolean showZeroValues) {
             this.showZeroValues = showZeroValues;
@@ -344,6 +352,7 @@ public final class DurationFormatter {
          * 设置单位之间的分隔符。
          *
          * @param separator 单位文本之间使用的分隔符
+         * @return 当前构建器
          */
         public Builder separator(String separator) {
             this.separator = ValidationUtils.requireNonNull(

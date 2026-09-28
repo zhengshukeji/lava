@@ -33,7 +33,9 @@ import java.nio.file.Path;
  */
 public final class ByteStreamUtils {
 
+    /** 复制与有界读取使用的默认缓冲区大小（字节）。 */
     public static final int DEFAULT_BUFFER_SIZE = 8192;
+    /** 有界读取的默认上限（16 MiB），防止把超大流无上限读入内存。 */
     public static final long DEFAULT_MAX_BYTES = 16L * 1024 * 1024;
     private static final long MAX_BYTE_ARRAY_SIZE = Integer.MAX_VALUE - 8L;
 

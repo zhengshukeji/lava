@@ -183,6 +183,9 @@ public final class HttpBodyUtils {
 
     /**
      * 将高级 multipart 构建器转换为传输无关请求体。
+     *
+     * @param multipart 已构建完成的 multipart 表单
+     * @return multipart 请求体
      */
     public static HttpBody multipart(HttpRequest.MultipartBuilder multipart) {
         return fromOkHttp(ValidationUtils.requireNonNull(multipart, "multipart must not be null").build());

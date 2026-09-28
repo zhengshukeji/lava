@@ -27,10 +27,16 @@ public final class HttpMediaTypes {
     private HttpMediaTypes() {
     }
 
+    /** 任意二进制流。 */
     public static final String APPLICATION_OCTET_STREAM = "application/octet-stream";
+    /** JSON 文档。 */
     public static final String APPLICATION_JSON = "application/json";
+    /** XML 文档。 */
     public static final String APPLICATION_XML = "application/xml";
+    /** URL 编码的表单提交。 */
     public static final String APPLICATION_FORM_URLENCODED = "application/x-www-form-urlencoded";
+    /** multipart 表单提交。 */
     public static final String MULTIPART_FORM_DATA = "multipart/form-data";
+    /** 纯文本。 */
     public static final String TEXT_PLAIN = "text/plain";
 }

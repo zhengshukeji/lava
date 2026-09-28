@@ -53,6 +53,45 @@ public final class JiandaoyunValidationUtils {
     }
 
     /**
+     * 校验通用必填文本非空白。
+     *
+     * @param value 参数值
+     * @param name 参数名，用于异常消息
+     * @return 原值
+     */
+    public static String requireNotBlank(String value, String name) {
+        return ValidationUtils.requireNotBlank(value, name + " must not be blank");
+    }
+
+    /**
+     * 校验文件上传地址：必须是 HTTPS 绝对地址，环回主机允许 HTTP 以支持本地协议测试。
+     *
+     * @param value 上传地址
+     * @return 原值
+     */
+    public static URI requireUploadUrl(URI value) {
+        ValidationUtils.requireNonNull(value, "upload url must not be null");
+        ValidationUtils.requireTrue(isSecureOrLoopback(value),
+                "upload url must be an absolute HTTPS URL (HTTP is only allowed for loopback hosts)");
+        return value;
+    }
+
+    /**
+     * 判断地址是否为 HTTPS 绝对地址，或指向环回主机的 HTTP 地址。
+     *
+     * @param value 待判断地址
+     * @return 满足传输安全要求时为 {@code true}
+     */
+    private static boolean isSecureOrLoopback(URI value) {
+        String scheme = value.getScheme() == null ? "" : value.getScheme().toLowerCase(Locale.ROOT);
+        String host = value.getHost();
+        boolean loopback = host != null && ("localhost".equalsIgnoreCase(host) || host.startsWith("127.")
+                || "[::1]".equals(host) || "::1".equals(host));
+        return value.isAbsolute() && host != null
+                && (scheme.equals("https") || scheme.equals("http") && loopback);
+    }
+
+    /**
      * 校验 API 根地址并统一补齐末尾斜杠。
      *
      * <p>API Key 以 Bearer 头发送，因此只允许 HTTPS，环回地址可用 HTTP 做本地协议测试；根地址不得带
@@ -63,12 +102,7 @@ public final class JiandaoyunValidationUtils {
      */
     public static URI requireApiBaseUrl(URI value) {
         ValidationUtils.requireNonNull(value, "apiBaseUrl must not be null");
-        String scheme = value.getScheme() == null ? "" : value.getScheme().toLowerCase(Locale.ROOT);
-        String host = value.getHost();
-        boolean loopback = host != null && ("localhost".equalsIgnoreCase(host) || host.startsWith("127.")
-                || "[::1]".equals(host) || "::1".equals(host));
-        ValidationUtils.requireTrue(value.isAbsolute() && host != null
-                        && (scheme.equals("https") || scheme.equals("http") && loopback),
+        ValidationUtils.requireTrue(isSecureOrLoopback(value),
                 "apiBaseUrl must be an absolute HTTPS URL (HTTP is only allowed for loopback hosts)");
         ValidationUtils.requireTrue(value.getRawQuery() == null && value.getRawFragment() == null
                         && value.getUserInfo() == null,

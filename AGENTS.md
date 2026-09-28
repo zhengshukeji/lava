@@ -26,3 +26,6 @@
 - 领域子客户端按开放文档分类分包（如 `application`、`form`），类名 = 包名驼峰 + Client，列表类接口的分页参数用请求对象 + Builder 表达。
 - 简道云 v6 起开放 API 只增不减出入参，所有响应模型必须 `@JsonIgnoreProperties(ignoreUnknown = true)`。
 - 上游命名陷阱：表单字段的 `name` 是别名（无别名时为字段标识），`widgetName` 才是控件 ID，不要按字面含义误用。
+- 数据写入值由 SDK 统一包装为 `{"value": ...}`（`internal/JiandaoyunDataUtils`，子表单行含行 `_id` 也包装），公开 API 只接收未包装的 `字段名 -> 值`。
+- 流程类接口在 HTTP 2xx 下也会返回 `{"status": "failure", "code", "message"}`，由传输层统一识别为 `JiandaoyunApiException`；新增接口不要自行判断。
+- 文件上传发往第三方对象存储，不得携带 API Key。

@@ -22,7 +22,10 @@ import org.jspecify.annotations.Nullable;
 import java.io.Serial;
 
 /**
- * 简道云服务器返回非成功 HTTP 状态时抛出的结构化异常。
+ * 简道云服务器返回业务失败时抛出的结构化异常。
+ *
+ * <p>业务失败包括非 2xx 响应，以及流程类接口在 2xx 下返回的 {@code {"status": "failure"}}；
+ * 文件上传到对象存储失败时，{@link #code()} 与 HTTP 状态码相同。</p>
  *
  * <p>异常消息只包含 HTTP 状态码和简道云错误码。简道云返回的错误描述通过显式访问器提供，
  * 避免日志框架自动打印异常时泄露业务输入。</p>
@@ -50,7 +53,8 @@ public final class JiandaoyunApiException extends JiandaoyunException {
      */
     public JiandaoyunApiException(int statusCode, int code, @Nullable String apiMessage) {
         super(format(statusCode, code));
-        ValidationUtils.requireTrue(statusCode >= 100 && statusCode <= 599,
+        // 对象存储（七牛）会返回 614 等非标准三位状态码，因此只约束为三位数
+        ValidationUtils.requireTrue(statusCode >= 100 && statusCode <= 999,
                 "statusCode must be a valid HTTP status code");
         this.statusCode = statusCode;
         this.code = code;

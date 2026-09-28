@@ -16,6 +16,7 @@
 
 package com.zhengshuyun.lava.jiandaoyun.internal;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.http.HttpClient;
@@ -32,8 +33,12 @@ import com.zhengshuyun.lava.jiandaoyun.exception.JiandaoyunTransportException;
 import com.zhengshuyun.lava.json.JsonCodec;
 import com.zhengshuyun.lava.json.JsonException;
 import org.jspecify.annotations.Nullable;
+import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -46,6 +51,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class JiandaoyunTransport implements AutoCloseable {
     /** 客户端在 User-Agent 中声明的产品名。 */
     private static final String USER_AGENT = "lava-jiandaoyun";
+    /** 流程类接口在 2xx 响应中表示业务失败的 status 取值。 */
+    private static final String FAILURE_STATUS = "failure";
 
     /** 简道云开放 API 的 Bearer API Key。 */
     private final String apiKey;
@@ -100,11 +107,25 @@ public final class JiandaoyunTransport implements AutoCloseable {
     }
 
     /**
+     * 从配置的 API 根地址创建带路径参数的端点，每个参数作为独立路径段编码。
+     *
+     * @param path API 绝对路径前缀
+     * @param segments 依次追加的路径参数
+     * @param suffix 路径参数之后的固定路径段
+     * @return 完整 URI
+     */
+    public URI endpoint(String path, List<String> segments, String suffix) {
+        HttpUrlBuilder builder = HttpUrlBuilder.from(apiBaseUrl).path(path);
+        segments.forEach(builder::appendPathSegment);
+        return builder.appendPathSegment(suffix).build();
+    }
+
+    /**
      * 发送携带 Bearer 鉴权的 JSON POST 请求，成功响应解析为业务模型。
      *
-     * <p>简道云开放 API 的查询类接口统一使用 POST 传输 JSON 请求体。成功（HTTP 2xx）响应
-     * 直接反序列化为业务模型；非 2xx 响应按 {@code {"code", "msg"}} 结构转换为
-     * {@link JiandaoyunApiException}，无法解析时视为协议异常。</p>
+     * <p>简道云开放 API 统一使用 POST 传输 JSON 请求体。非 2xx 响应按 {@code {"code", "msg"}} 结构转换为
+     * {@link JiandaoyunApiException}；流程类接口在 2xx 下也可能返回 {@code {"status": "failure"}}，
+     * 同样按业务失败处理。</p>
      *
      * @param uri 请求 URI
      * @param requestBody 请求模型
@@ -113,42 +134,114 @@ public final class JiandaoyunTransport implements AutoCloseable {
      * @return 响应模型
      */
     public <T> T post(URI uri, Object requestBody, Class<T> responseType) {
-        ensureOpen();
-        // 1. 编码一次请求正文，后续发送使用同一份数据，避免二次序列化。
-        byte[] body = encode(requestBody);
-        HttpResponse response = execute(uri, body);
-        byte[] responseBody = response.bodyBytes();
-
-        // 2. 成功响应解析为业务模型；空正文或结构不符属于协议异常。
-        if (response.isSuccessful()) {
-            if (responseBody.length == 0) {
-                throw new JiandaoyunProtocolException("简道云成功响应缺少正文");
-            }
-            try {
-                return jsonCodec.read(responseBody, responseType);
-            } catch (JsonException | IllegalArgumentException exception) {
-                throw new JiandaoyunProtocolException("简道云成功响应不是预期的 JSON 结构", exception);
-            }
+        JsonNode tree = send(uri, requestBody);
+        if (tree == null) {
+            throw new JiandaoyunProtocolException("简道云成功响应缺少正文");
         }
-
-        // 3. 失败响应按简道云错误结构解析为可编程判断的领域异常。
-        throw apiException(response.statusCode(), responseBody);
+        try {
+            return jsonCodec.convert(tree, responseType);
+        } catch (JsonException | IllegalArgumentException exception) {
+            throw new JiandaoyunProtocolException("简道云成功响应不是预期的 JSON 结构", exception);
+        }
     }
 
     /**
-     * 执行单次携带 Bearer 鉴权的 HTTP 请求，并将底层 HTTP 失败转换为脱敏领域异常。
+     * 发送不关心响应内容的写操作请求，例如删除和成员增减。
      *
-     * @param uri 最终请求地址
-     * @param body 请求正文字节
-     * @return 尚未解析的 HTTP 响应
+     * <p>部分接口成功时只返回 HTTP 200 空正文，因此允许正文为空；有正文时仍会识别
+     * {@code {"status": "failure"}} 业务失败。</p>
+     *
+     * @param uri 请求 URI
+     * @param requestBody 请求模型
      */
-    private HttpResponse execute(URI uri, byte[] body) {
-        HttpRequest request = HttpRequest.builder(uri, HttpMethod.POST)
+    public void postVoid(URI uri, Object requestBody) {
+        send(uri, requestBody);
+    }
+
+    /**
+     * 使用 {@code get_upload_token} 返回的凭证把本地文件上传到对象存储。
+     *
+     * <p>上传地址属于第三方对象存储（七牛），请求不携带简道云 API Key；按对象存储约定，
+     * {@code token} 字段在前、{@code file} 字段在最后。</p>
+     *
+     * @param url 上传地址
+     * @param token 上传凭证
+     * @param file 待上传文件
+     * @param contentType 文件媒体类型
+     * @return 对象存储返回的文件 key，用于附件和图片字段取值
+     */
+    public String upload(URI url, String token, Path file, String contentType) {
+        ensureOpen();
+        HttpRequest request = HttpRequest.builder(url, HttpMethod.POST)
+                .header(HttpHeaderNames.ACCEPT, HttpMediaTypes.APPLICATION_JSON)
+                .userAgent(USER_AGENT)
+                .multipartBody(HttpRequest.MultipartBuilder.builder()
+                        .addFormField("token", token)
+                        .addFile("file", file, contentType))
+                .build();
+        HttpResponse response = send(request);
+        byte[] responseBody = response.bodyBytes();
+        if (!response.isSuccessful()) {
+            // 七牛错误正文为 {"error": "..."}，错误码即 HTTP 状态码（如 401 凭证无效、614 文件已存在）
+            throw new JiandaoyunApiException(response.statusCode(), response.statusCode(),
+                    readUploadError(responseBody));
+        }
+        try {
+            UploadPayload payload = jsonCodec.read(responseBody, UploadPayload.class);
+            return ValidationUtils.requireNotBlank(payload.key(), "key");
+        } catch (JsonException | IllegalArgumentException exception) {
+            throw new JiandaoyunProtocolException("文件上传成功响应缺少 key", exception);
+        }
+    }
+
+    /**
+     * 发送 JSON 请求并返回成功响应的树模型，统一处理 HTTP 失败和 2xx 业务失败。
+     *
+     * @param uri 请求 URI
+     * @param requestBody 请求模型
+     * @return 响应树；成功响应正文为空时为 {@code null}
+     */
+    private @Nullable JsonNode send(URI uri, Object requestBody) {
+        ensureOpen();
+        // 1. 编码一次请求正文，后续发送使用同一份数据，避免二次序列化。
+        byte[] body = encode(requestBody);
+        HttpResponse response = send(HttpRequest.builder(uri, HttpMethod.POST)
                 .header(HttpHeaderNames.ACCEPT, HttpMediaTypes.APPLICATION_JSON)
                 .bearerToken(apiKey)
                 .userAgent(USER_AGENT)
                 .body(body, HttpMediaTypes.APPLICATION_JSON)
-                .build();
+                .build());
+        byte[] responseBody = response.bodyBytes();
+
+        // 2. 失败响应按简道云错误结构解析为可编程判断的领域异常。
+        if (!response.isSuccessful()) {
+            throw apiException(response.statusCode(), responseBody);
+        }
+        if (responseBody.length == 0) {
+            return null;
+        }
+
+        // 3. 成功状态码下仍需识别 {"status": "failure", "code", "message"} 形式的业务失败。
+        JsonNode tree;
+        try {
+            tree = jsonCodec.readTree(new String(responseBody, StandardCharsets.UTF_8));
+        } catch (JsonException exception) {
+            throw new JiandaoyunProtocolException("简道云成功响应不是合法 JSON", exception);
+        }
+        JsonNode status = tree.get("status");
+        if (status != null && status.isString() && FAILURE_STATUS.equals(status.stringValue())) {
+            throw apiException(response.statusCode(), responseBody);
+        }
+        return tree;
+    }
+
+    /**
+     * 执行单次 HTTP 请求，并将底层 HTTP 失败转换为脱敏领域异常。
+     *
+     * @param request 已构建的请求
+     * @return 尚未解析的 HTTP 响应
+     */
+    private HttpResponse send(HttpRequest request) {
         try {
             return httpClient.send(request);
         } catch (HttpException exception) {
@@ -188,6 +281,20 @@ public final class JiandaoyunTransport implements AutoCloseable {
     }
 
     /**
+     * 尽力读取对象存储错误描述；正文不是预期结构时返回 {@code null}。
+     *
+     * @param responseBody 错误响应正文
+     * @return 错误描述
+     */
+    private @Nullable String readUploadError(byte[] responseBody) {
+        try {
+            return jsonCodec.read(responseBody, UploadErrorPayload.class).error();
+        } catch (JsonException | IllegalArgumentException exception) {
+            return null;
+        }
+    }
+
+    /**
      * 确保根客户端仍处于可用状态。
      *
      * @throws IllegalStateException 根客户端已经关闭
@@ -215,6 +322,24 @@ public final class JiandaoyunTransport implements AutoCloseable {
      * @param msg 错误描述
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record ApiErrorPayload(int code, @Nullable String msg) {
+    private record ApiErrorPayload(int code, @JsonAlias("message") @Nullable String msg) {
+    }
+
+    /**
+     * 对象存储上传成功响应正文结构。
+     *
+     * @param key 文件 key
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record UploadPayload(String key) {
+    }
+
+    /**
+     * 对象存储上传失败响应正文结构。
+     *
+     * @param error 错误描述
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record UploadErrorPayload(@Nullable String error) {
     }
 }

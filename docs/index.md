@@ -35,6 +35,6 @@ features:
     details: 支付宝 OpenAPI V3、电脑网站支付、通知验签、退款与账单能力。
     link: /lava-pay-alipay/
   - title: lava-jiandaoyun
-    details: 简道云开放平台 v5 应用、表单与表单字段查询。
+    details: 简道云开放平台全量 API：数据、文件、流程、通讯录、资源用量、审计日志与推送验签。
     link: /lava-jiandaoyun/
 ---

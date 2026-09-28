@@ -17,6 +17,7 @@ package com.zhengshuyun.lava.jiandaoyun;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.zhengshuyun.lava.json.JsonCodec;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -188,6 +189,24 @@ final class JiandaoyunTestServer implements AutoCloseable {
                     .map(entry -> entry.getValue().getFirst())
                     .findFirst()
                     .orElse(null);
+        }
+
+        /**
+         * 以 UTF-8 解码请求正文。
+         *
+         * @return 正文文本
+         */
+        String bodyText() {
+            return new String(body, StandardCharsets.UTF_8);
+        }
+
+        /**
+         * 把 JSON 请求正文规范化为紧凑文本，便于与期望值整体比较。
+         *
+         * @return 紧凑 JSON 文本
+         */
+        String json() {
+            return JsonCodec.defaultCodec().readTree(bodyText()).toString();
         }
     }
 

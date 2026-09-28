@@ -20,6 +20,16 @@ import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.http.HttpClient;
 import com.zhengshuyun.lava.http.OkHttpInterop;
 import com.zhengshuyun.lava.jiandaoyun.application.ApplicationClient;
+import com.zhengshuyun.lava.jiandaoyun.data.DataClient;
+import com.zhengshuyun.lava.jiandaoyun.file.FileClient;
+import com.zhengshuyun.lava.jiandaoyun.workflow.WorkflowClient;
+import com.zhengshuyun.lava.jiandaoyun.member.MemberClient;
+import com.zhengshuyun.lava.jiandaoyun.department.DepartmentClient;
+import com.zhengshuyun.lava.jiandaoyun.role.RoleClient;
+import com.zhengshuyun.lava.jiandaoyun.rolegroup.RoleGroupClient;
+import com.zhengshuyun.lava.jiandaoyun.guest.GuestClient;
+import com.zhengshuyun.lava.jiandaoyun.usage.UsageClient;
+import com.zhengshuyun.lava.jiandaoyun.auditlog.AuditLogClient;
 import com.zhengshuyun.lava.jiandaoyun.form.FormClient;
 import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunJsonUtils;
 import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunTransport;
@@ -33,7 +43,8 @@ import java.net.URISyntaxException;
  * 线程安全的简道云开放 API 根客户端。
  *
  * <p>根客户端绑定一个 API Key 并共享 HTTP 连接资源，Bearer 鉴权、错误映射和 JSON 编解码
- * 集中在内部传输层完成。应用和表单等领域能力从根客户端的对应入口获取。</p>
+ * 集中在内部传输层完成。应用、表单、数据、文件、流程、通讯录、资源用量和审计日志等领域能力
+ * 从根客户端的对应入口获取；推送验签见 {@link com.zhengshuyun.lava.jiandaoyun.webhook.JiandaoyunWebhookUtils}。</p>
  */
 public final class JiandaoyunClient implements AutoCloseable {
     /**
@@ -53,6 +64,46 @@ public final class JiandaoyunClient implements AutoCloseable {
      * 表单和表单字段查询入口。
      */
     private final FormClient formClient;
+    /**
+     * 表单数据增删改查入口。
+     */
+    private final DataClient dataClient;
+    /**
+     * 文件上传入口。
+     */
+    private final FileClient fileClient;
+    /**
+     * 流程实例、待办和抄送入口。
+     */
+    private final WorkflowClient workflowClient;
+    /**
+     * 通讯录成员入口。
+     */
+    private final MemberClient memberClient;
+    /**
+     * 通讯录部门入口。
+     */
+    private final DepartmentClient departmentClient;
+    /**
+     * 通讯录角色入口。
+     */
+    private final RoleClient roleClient;
+    /**
+     * 通讯录角色组入口。
+     */
+    private final RoleGroupClient roleGroupClient;
+    /**
+     * 企业互联入口。
+     */
+    private final GuestClient guestClient;
+    /**
+     * 资源用量入口。
+     */
+    private final UsageClient usageClient;
+    /**
+     * 审计日志入口。
+     */
+    private final AuditLogClient auditLogClient;
 
     /**
      * 使用共享传输层创建并缓存各领域入口。
@@ -63,6 +114,16 @@ public final class JiandaoyunClient implements AutoCloseable {
         this.transport = transport;
         applicationClient = new ApplicationClient(transport);
         formClient = new FormClient(transport);
+        dataClient = new DataClient(transport);
+        fileClient = new FileClient(transport);
+        workflowClient = new WorkflowClient(transport);
+        memberClient = new MemberClient(transport);
+        departmentClient = new DepartmentClient(transport);
+        roleClient = new RoleClient(transport);
+        roleGroupClient = new RoleGroupClient(transport);
+        guestClient = new GuestClient(transport);
+        usageClient = new UsageClient(transport);
+        auditLogClient = new AuditLogClient(transport);
     }
 
     /**
@@ -92,6 +153,106 @@ public final class JiandaoyunClient implements AutoCloseable {
     public FormClient forms() {
         transport.ensureOpen();
         return formClient;
+    }
+
+    /**
+     * 返回表单数据增删改查入口。
+     *
+     * @return DataClient
+     */
+    public DataClient data() {
+        transport.ensureOpen();
+        return dataClient;
+    }
+
+    /**
+     * 返回文件上传入口。
+     *
+     * @return FileClient
+     */
+    public FileClient files() {
+        transport.ensureOpen();
+        return fileClient;
+    }
+
+    /**
+     * 返回流程实例、待办和抄送入口。
+     *
+     * @return WorkflowClient
+     */
+    public WorkflowClient workflows() {
+        transport.ensureOpen();
+        return workflowClient;
+    }
+
+    /**
+     * 返回通讯录成员入口。
+     *
+     * @return MemberClient
+     */
+    public MemberClient members() {
+        transport.ensureOpen();
+        return memberClient;
+    }
+
+    /**
+     * 返回通讯录部门入口。
+     *
+     * @return DepartmentClient
+     */
+    public DepartmentClient departments() {
+        transport.ensureOpen();
+        return departmentClient;
+    }
+
+    /**
+     * 返回通讯录角色入口。
+     *
+     * @return RoleClient
+     */
+    public RoleClient roles() {
+        transport.ensureOpen();
+        return roleClient;
+    }
+
+    /**
+     * 返回通讯录角色组入口。
+     *
+     * @return RoleGroupClient
+     */
+    public RoleGroupClient roleGroups() {
+        transport.ensureOpen();
+        return roleGroupClient;
+    }
+
+    /**
+     * 返回企业互联入口。
+     *
+     * @return GuestClient
+     */
+    public GuestClient guests() {
+        transport.ensureOpen();
+        return guestClient;
+    }
+
+    /**
+     * 返回资源用量入口。
+     *
+     * @return UsageClient
+     */
+    public UsageClient usage() {
+        transport.ensureOpen();
+        return usageClient;
+    }
+
+    /**
+     * 返回审计日志入口。
+     *
+     * @return AuditLogClient
+     */
+    public AuditLogClient auditLogs() {
+        transport.ensureOpen();
+        return auditLogClient;
     }
 
     /**

@@ -149,6 +149,40 @@ class JiandaoyunClientTest {
 
         assertThrows(IllegalStateException.class, () -> client.applications());
         assertThrows(IllegalStateException.class, () -> client.forms());
+        assertThrows(IllegalStateException.class, () -> client.data());
+        assertThrows(IllegalStateException.class, () -> client.files());
+        assertThrows(IllegalStateException.class, () -> client.workflows());
+        assertThrows(IllegalStateException.class, () -> client.members());
+        assertThrows(IllegalStateException.class, () -> client.departments());
+        assertThrows(IllegalStateException.class, () -> client.roles());
+        assertThrows(IllegalStateException.class, () -> client.roleGroups());
+        assertThrows(IllegalStateException.class, () -> client.guests());
+        assertThrows(IllegalStateException.class, () -> client.usage());
+        assertThrows(IllegalStateException.class, () -> client.auditLogs());
+    }
+
+    /**
+     * 验证错误正文使用 message 字段（而非 msg）时同样能解析出错误描述。
+     */
+    @Test
+    void apiErrorAcceptsMessageField() {
+        server.enqueue(400, "{\"code\":1010,\"message\":\"用户不存在\"}");
+
+        JiandaoyunApiException exception = assertThrows(JiandaoyunApiException.class,
+                () -> client.applications().list(ListApplicationsRequest.builder().build()));
+
+        assertEquals(1010, exception.code());
+        assertEquals("用户不存在", exception.apiMessage());
+    }
+
+    /**
+     * 验证成功状态且 status=success 的正文不会被误判为业务失败。
+     */
+    @Test
+    void successStatusBodyIsNotTreatedAsFailure() {
+        server.enqueue(200, "{\"status\":\"success\",\"apps\":[]}");
+
+        assertEquals(0, client.applications().list(ListApplicationsRequest.builder().build()).size());
     }
 
     /**

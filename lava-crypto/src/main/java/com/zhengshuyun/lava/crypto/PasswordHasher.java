@@ -58,6 +58,12 @@ public final class PasswordHasher {
     private static final long MAX_MEMORY_KIB = 4L * 1024 * 1024;
     private static final long MAX_ITERATIONS = 1_000;
     private static final long MAX_PARALLELISM = 255;
+    /**
+     * 盐与哈希的字节上限，以及解析前的 PHC 总长度上限。哈希长度决定验证时的输出分配与计算量，
+     * 不设上限时一条被写入的超长哈希行会让每次登录都分配并计算同等大小的输出。
+     */
+    private static final int MAX_SALT_OR_HASH_BYTES = 1024;
+    private static final int MAX_ENCODED_LENGTH = 4096;
     private static final Base64.Encoder BASE64_ENCODER = Base64.getEncoder().withoutPadding();
     private static final Base64.Decoder BASE64_DECODER = Base64.getDecoder();
 
@@ -166,6 +172,10 @@ public final class PasswordHasher {
 
     private static ParsedHash parse(String encodedHash) {
         ValidationUtils.requireNonNull(encodedHash, "encodedHash must not be null");
+        // 先按长度拒绝，避免对超长输入做正则匹配与 Base64 解码
+        if (encodedHash.length() > MAX_ENCODED_LENGTH) {
+            throw new CryptoException("Argon2id PHC string exceeds the verification limit");
+        }
         Matcher matcher = PHC.matcher(encodedHash);
         if (!matcher.matches()) {
             throw new CryptoException("Invalid Argon2id PHC string");
@@ -193,6 +203,9 @@ public final class PasswordHasher {
         }
         if (salt.length < 8 || hash.length < 4) {
             throw new CryptoException("Argon2id salt or hash is too short");
+        }
+        if (salt.length > MAX_SALT_OR_HASH_BYTES || hash.length > MAX_SALT_OR_HASH_BYTES) {
+            throw new CryptoException("Argon2id salt or hash exceeds the verification limit");
         }
         return new ParsedHash(parameters.memoryKiB(), parameters.iterations(), parameters.parallelism(),
                 salt, hash);

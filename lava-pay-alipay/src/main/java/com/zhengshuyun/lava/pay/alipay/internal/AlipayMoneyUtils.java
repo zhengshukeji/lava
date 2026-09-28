@@ -68,13 +68,16 @@ public final class AlipayMoneyUtils {
     }
 
     /**
-     * 解析可选金额字段；字段缺失时返回 null。
+     * 解析可选金额字段；字段缺失或为空白时返回 null。
+     *
+     * <p>异步通知是表单编码，可选字段可能以 {@code refund_fee=} 这样的空值出现，
+     * 与 {@link AlipayDateTimeUtils#parseOptional} 一致按缺失处理，避免整条已验签通知无法解析。</p>
      *
      * @param value 协议金额文本，可以为 null
      * @param name  字段名
-     * @return 金额，单位为分；缺失时为 null
+     * @return 金额，单位为分；缺失或空白时为 null
      */
     public static @Nullable Long parseOptional(@Nullable String value, String name) {
-        return value == null ? null : parse(value, name);
+        return value == null || value.isBlank() ? null : parse(value, name);
     }
 }

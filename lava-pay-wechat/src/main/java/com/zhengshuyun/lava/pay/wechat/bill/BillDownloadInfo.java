@@ -5,11 +5,9 @@
 
 package com.zhengshuyun.lava.pay.wechat.bill;
 
-import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import org.jspecify.annotations.Nullable;
 
 import java.net.URI;
-import java.util.regex.Pattern;
 
 /**
  * 已验签的账单下载信息。
@@ -25,9 +23,6 @@ public record BillDownloadInfo(
         URI downloadUrl,
         @Nullable BillTarType tarType
 ) {
-    /** 微信支付账单摘要的 40 位十六进制格式。 */
-    private static final Pattern SHA1_VALUE = Pattern.compile("[0-9A-Fa-f]{40}");
-
     /**
      * 返回不包含账单下载令牌的安全摘要。
      *

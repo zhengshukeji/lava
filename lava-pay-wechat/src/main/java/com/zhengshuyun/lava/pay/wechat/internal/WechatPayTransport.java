@@ -17,7 +17,6 @@
 package com.zhengshuyun.lava.pay.wechat.internal;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.http.*;
 import com.zhengshuyun.lava.json.JsonCodec;
 import com.zhengshuyun.lava.json.JsonException;
@@ -31,7 +30,6 @@ import java.security.PublicKey;
 import java.time.Clock;
 import java.util.Arrays;
 import java.util.Locale;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
@@ -47,9 +45,6 @@ public final class WechatPayTransport implements AutoCloseable {
     private static final byte[] EMPTY_BODY = new byte[0];
     /** 下载账单失败响应允许读取的最大字节数，防止错误正文无限占用内存。 */
     private static final int MAX_DOWNLOAD_ERROR_BYTES = 64 * 1024;
-    /** 微信支付账单下载链接允许使用的官方 API 主、备域名。 */
-    private static final Set<String> OFFICIAL_API_HOSTS = Set.of(
-            "api.mch.weixin.qq.com", "api2.mch.weixin.qq.com");
 
     /** 当前普通商户号，写入请求签名和需携带商户号的业务参数。 */
     private final String mchid;
@@ -455,7 +450,7 @@ public final class WechatPayTransport implements AutoCloseable {
         // 2. 测试环境允许与配置根地址同源；生产下载链接只允许微信支付官方主、备域名。
         boolean sameOrigin = sameOrigin(apiBaseUrl, uri);
         boolean officialOrigin = "https".equalsIgnoreCase(uri.getScheme())
-                && OFFICIAL_API_HOSTS.contains(uri.getHost().toLowerCase(Locale.ROOT))
+                && WechatPayValidationUtils.OFFICIAL_API_HOSTS.contains(uri.getHost().toLowerCase(Locale.ROOT))
                 && (uri.getPort() == -1 || uri.getPort() == 443);
         if (!sameOrigin && !officialOrigin) {
             throw new WechatPayProtocolException("微信支付账单下载地址来源不受信任");

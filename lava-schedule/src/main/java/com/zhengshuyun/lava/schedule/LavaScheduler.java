@@ -43,6 +43,10 @@ public final class LavaScheduler implements AutoCloseable {
      * 晚于计划时间超过该宽限即视为错过触发；错过的多次触发合并为一次立即执行。
      */
     private static final Duration MISFIRE_GRACE = Duration.ofMillis(10);
+    /**
+     * 合并错过触发时，从错过时刻逐个推进的最大步数；超过后直接从当前时刻计算，避免遍历长时间积压。
+     */
+    private static final int MAX_MISFIRE_STEPS = 1_000;
 
     private final Clock clock;
     private final ScheduledThreadPoolExecutor coordinator;
@@ -471,7 +475,7 @@ public final class LavaScheduler implements AutoCloseable {
 
         /**
          * 安排下一次唤醒；若计划时刻已错过，则把错过的触发合并为一次立即执行，
-         * 再从当前时刻推进到下一个未来触发时刻。
+         * 再推进到下一个未来触发时刻。
          */
         private void resolveMisfiresAndSchedule() {
             while (true) {
@@ -487,12 +491,30 @@ public final class LavaScheduler implements AutoCloseable {
                         scheduleWakeupLocked(scheduledAt, now);
                         return;
                     }
-                    // 直接从当前时刻计算下一次，跳过其间全部错过的触发，避免遍历长时间积压
-                    nextExecution = trigger.nextFireTime(now);
+                    previousExecution = scheduledAt;
+                    nextExecution = nextFireTimeAfterMisfire(scheduledAt, now);
                 }
                 // 监听器属于用户代码，在状态锁之外派发
                 offerOccurrence(scheduledAt);
             }
+        }
+
+        /**
+         * 计算错过触发后的下一个未来触发时刻。
+         *
+         * <p>fixedRate 的 nextFireTime(t) 是 t + interval，若直接以当前时刻为起点，每次轻微逾期
+         * （GC、慢监听器）都会让相位后移并持续累积。因此先从错过的计划时刻逐个推进以保持相位，
+         * 只有积压超过 {@link #MAX_MISFIRE_STEPS} 时才退回从当前时刻计算。</p>
+         */
+        private @Nullable Instant nextFireTimeAfterMisfire(Instant scheduledAt, Instant now) {
+            Instant next = trigger.nextFireTime(scheduledAt);
+            for (int step = 0; next != null && !next.isAfter(now); step++) {
+                if (step == MAX_MISFIRE_STEPS) {
+                    return trigger.nextFireTime(now);
+                }
+                next = trigger.nextFireTime(next);
+            }
+            return next;
         }
 
         private void scheduleWakeupLocked(Instant scheduledAt, Instant now) {

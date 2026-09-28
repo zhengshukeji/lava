@@ -32,9 +32,9 @@ import java.util.Set;
 public final class WechatPayValidationUtils {
 
     /**
-     * 微信支付官方 API 主、备域名。
+     * 微信支付官方 API 主、备域名；baseUrl 白名单与账单下载地址信任边界共用这一份，避免两处分叉。
      */
-    private static final Set<String> OFFICIAL_API_HOSTS = Set.of("api.mch.weixin.qq.com", "api2.mch.weixin.qq.com");
+    static final Set<String> OFFICIAL_API_HOSTS = Set.of("api.mch.weixin.qq.com", "api2.mch.weixin.qq.com");
 
     private WechatPayValidationUtils() {
         throw new UnsupportedOperationException("Utility class");
@@ -110,18 +110,6 @@ public final class WechatPayValidationUtils {
      */
     public static long requirePositive(long value, String name) {
         ValidationUtils.requireTrue(value > 0, name + " must be positive");
-        return value;
-    }
-
-    /**
-     * 校验数值非负。
-     *
-     * @param value 数值
-     * @param name  参数名称
-     * @return 原值
-     */
-    public static long requireNonNegative(long value, String name) {
-        ValidationUtils.requireTrue(value >= 0, name + " must not be negative");
         return value;
     }
 

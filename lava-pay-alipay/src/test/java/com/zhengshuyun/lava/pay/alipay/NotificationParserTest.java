@@ -93,6 +93,19 @@ class NotificationParserTest {
     }
 
     @Test
+    void blankOptionalAmountIsTreatedAsMissing() {
+        // 表单通知的可选字段可能以空值出现，应按缺失处理而不是让整条已验签通知解析失败
+        Map<String, String> params = baseTradeParams(SELLER_ID);
+        params.put("refund_fee", "");
+        params.put("receipt_amount", " ");
+
+        TradeNotification notification = client.notifications().parseTrade(signed(params));
+
+        assertNull(notification.refundAmount());
+        assertNull(notification.receiptAmount());
+    }
+
+    @Test
     void tamperedOrWrongMerchantNotificationsFailClosed() {
         Map<String, String> tampered = signed(baseTradeParams(SELLER_ID));
         tampered.put("total_amount", "9.99");

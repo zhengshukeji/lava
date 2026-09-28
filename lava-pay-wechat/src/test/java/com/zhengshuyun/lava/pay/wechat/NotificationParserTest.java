@@ -225,6 +225,46 @@ class NotificationParserTest {
         assertThrows(WechatPayProtocolException.class,
                 () -> client.notifications().parseTransaction(
                         signedHeaders(body, CLOCK.instant().getEpochSecond()), body));
+
+        // 缺少 event_type 的退款通知须报协议错误，而不是在事件集合判断处抛 NPE
+        String missingEvent = new String(envelope("REFUND.SUCCESS", "refund", "{}"),
+                StandardCharsets.UTF_8).replace("\"event_type\":\"REFUND.SUCCESS\",", "");
+        byte[] missingEventBody = missingEvent.getBytes(StandardCharsets.UTF_8);
+        assertThrows(WechatPayProtocolException.class,
+                () -> client.notifications().parseRefund(
+                        signedHeaders(missingEventBody, CLOCK.instant().getEpochSecond()), missingEventBody));
+    }
+
+    /**
+     * 验证已验签通知中事件类型与解密资源状态矛盾时拒绝，防止未付款或未完成退款被当作成功处理。
+     */
+    @Test
+    void notificationStateMustMatchEventType() {
+        String notPaid = """
+                {"appid":"wx1234567890","mchid":"1900000109",
+                 "out_trade_no":"ORDER_001","trade_state":"NOTPAY",
+                 "trade_state_desc":"未支付"}
+                """;
+        byte[] notPaidBody = envelope("TRANSACTION.SUCCESS", "transaction", notPaid);
+        assertThrows(WechatPayProtocolException.class,
+                () -> client.notifications().parseTransaction(
+                        signedHeaders(notPaidBody, CLOCK.instant().getEpochSecond()), notPaidBody));
+
+        String abnormalRefund = """
+                {"mchid":"1900000109","out_trade_no":"ORDER_001",
+                 "out_refund_no":"REFUND_001","refund_id":"5000000001",
+                 "refund_status":"ABNORMAL"}
+                """;
+        byte[] mismatchedBody = envelope("REFUND.SUCCESS", "refund", abnormalRefund);
+        assertThrows(WechatPayProtocolException.class,
+                () -> client.notifications().parseRefund(
+                        signedHeaders(mismatchedBody, CLOCK.instant().getEpochSecond()), mismatchedBody));
+
+        String successWithoutTime = abnormalRefund.replace("ABNORMAL", "SUCCESS");
+        byte[] noTimeBody = envelope("REFUND.SUCCESS", "refund", successWithoutTime);
+        assertThrows(WechatPayProtocolException.class,
+                () -> client.notifications().parseRefund(
+                        signedHeaders(noTimeBody, CLOCK.instant().getEpochSecond()), noTimeBody));
     }
 
     /**

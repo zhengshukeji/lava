@@ -404,7 +404,7 @@ public final class AlipayClient implements AutoCloseable {
         }
 
         /**
-         * 构建可复用根客户端。构建器成功使用后不能再次使用；内部创建的 HTTP 客户端由根客户端接管。
+         * 构建根客户端。构建器可重复使用，每次构建得到独立的客户端；内部创建的 HTTP 客户端由根客户端接管。
          *
          * @return 根客户端
          * @throws IllegalArgumentException 缺少必需配置

@@ -288,6 +288,25 @@ class LavaSchedulerTest {
     }
 
     @Test
+    void smallMisfireKeepsFixedRatePhase() throws Exception {
+        Instant now = Instant.parse("2026-08-17T00:00:00Z");
+        List<TaskEvent> events = new CopyOnWriteArrayList<>();
+        try (LavaScheduler scheduler = LavaScheduler.builder()
+                .clock(Clock.fixed(now, ZoneOffset.UTC))
+                .listener(events::add)
+                .build()) {
+            // 错过 3 次触发：合并执行一次后，下一次仍落在原相位 now+0.5s，而不是从当前时刻重算的 now+1s
+            Instant first = now.minusMillis(2_500);
+            ScheduledTask task = scheduler.schedule("phase", () -> {
+            }, Trigger.fixedRate(first, Duration.ofSeconds(1)));
+
+            assertTrue(awaitStatus(events, TaskEventStatus.SUCCESS));
+            assertEquals(now.plusMillis(500), task.nextExecution());
+            assertEquals(first, task.previousExecution());
+        }
+    }
+
+    @Test
     void pauseResumeAndCancelAreInstanceScoped() {
         try (LavaScheduler first = LavaScheduler.create(); LavaScheduler second = LavaScheduler.create()) {
             ScheduledTask firstTask = first.schedule("same-id", () -> {

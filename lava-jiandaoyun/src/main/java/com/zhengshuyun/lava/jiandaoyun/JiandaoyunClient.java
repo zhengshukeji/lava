@@ -95,8 +95,7 @@ public final class JiandaoyunClient implements AutoCloseable {
     }
 
     /**
-     * 关闭客户端并清除 API Key 引用。自建 HTTP 资源会被关闭，
-     * 调用方传入的 HTTP 客户端保持可用。
+     * 关闭客户端。自建 HTTP 资源会被关闭，调用方传入的 HTTP 客户端保持可用。
      */
     @Override
     public void close() {
@@ -189,7 +188,7 @@ public final class JiandaoyunClient implements AutoCloseable {
         }
 
         /**
-         * 创建不可变客户端。构建器只能成功构建一次，每次尝试后都会释放 API Key 引用。
+         * 创建不可变客户端。构建器可重复使用，每次构建得到独立的客户端。
          *
          * @return 简道云根客户端
          */

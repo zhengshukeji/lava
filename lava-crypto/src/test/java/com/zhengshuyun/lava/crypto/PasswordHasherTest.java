@@ -110,6 +110,15 @@ class PasswordHasherTest {
                 () -> hasher.verify("password", valid.replace("p=1", "p=256")));
         assertThrows(CryptoException.class,
                 () -> hasher.verify("password", valid.replace("m=1024", "m=999999999999999")));
+
+        // 超长哈希在解码前按总长度拒绝，未超总长但盐或哈希过大时在计算前拒绝
+        String prefix = valid.substring(0, valid.lastIndexOf('$') + 1);
+        CryptoException tooLong = assertThrows(CryptoException.class,
+                () -> hasher.verify("password", prefix + "A".repeat(1_000_000)));
+        assertTrue(tooLong.getMessage().contains("verification limit"));
+        CryptoException hugeHash = assertThrows(CryptoException.class,
+                () -> hasher.verify("password", prefix + "A".repeat(2_000)));
+        assertTrue(hugeHash.getMessage().contains("verification limit"));
     }
 
     @Test

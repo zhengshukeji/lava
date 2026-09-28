@@ -335,6 +335,10 @@ public final class JsonCodec {
             value = action.get();
         } catch (JsonException exception) {
             throw exception;
+        } catch (UncheckedIOException exception) {
+            // 文件读写在 lambda 内只能以 UncheckedIOException 抛出，拆掉这层包装，
+            // 让调用方仍可按 NoSuchFileException 等原始 IOException 类型判断
+            throw new JsonException(failureMessage, exception.getCause());
         } catch (RuntimeException exception) {
             throw new JsonException(failureMessage, exception);
         }

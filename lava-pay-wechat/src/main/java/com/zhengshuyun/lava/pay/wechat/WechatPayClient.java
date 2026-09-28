@@ -204,7 +204,7 @@ public final class WechatPayClient implements AutoCloseable {
          */
         private @Nullable String merchantSerialNo;
         /**
-         * APIv3 密钥的构建期防御性副本，构建完成后立即清零。
+         * APIv3 密钥的防御性副本；构建时传输层会再复制一份，并在客户端关闭时清零。
          */
         private byte @Nullable [] apiV3Key;
         /**
@@ -419,7 +419,7 @@ public final class WechatPayClient implements AutoCloseable {
         }
 
         /**
-         * 创建不可变客户端。构建器只能成功构建一次，每次尝试后都会释放构建期敏感配置。
+         * 创建不可变客户端。构建器可重复使用，每次构建得到独立的客户端。
          *
          * @return 微信支付根客户端
          */

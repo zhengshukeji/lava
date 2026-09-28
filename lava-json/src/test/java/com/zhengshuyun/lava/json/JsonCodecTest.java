@@ -138,6 +138,11 @@ class JsonCodecTest {
         List<User> users = codec.read(path, new TypeReference<List<User>>() {
         });
         assertEquals(List.of(new User(2, "b")), users);
+
+        // 文件读取失败时 cause 直接是原始 IOException，不夹一层 UncheckedIOException
+        JsonException missing = assertThrows(JsonException.class,
+                () -> codec.read(directory.resolve("missing.json"), User.class));
+        assertInstanceOf(java.nio.file.NoSuchFileException.class, missing.getCause());
     }
 
     @Test

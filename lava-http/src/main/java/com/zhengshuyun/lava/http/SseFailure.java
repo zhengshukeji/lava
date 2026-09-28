@@ -31,6 +31,9 @@ import org.jspecify.annotations.Nullable;
 public record SseFailure(HttpFailureKind kind, @Nullable Throwable cause,
                          @Nullable Integer statusCode, @Nullable HttpHeaders headers,
                          @Nullable String responseBody) {
+    /**
+     * 紧凑构造器：校验失败分类非空。
+     */
     public SseFailure {
         ValidationUtils.requireNonNull(kind, "kind must not be null");
     }

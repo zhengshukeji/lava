@@ -122,6 +122,12 @@ public final class HttpProxy {
         private @Nullable Authenticator authenticator;
 
         /**
+         * 创建构建器
+         */
+        public Builder() {
+        }
+
+        /**
          * 设置 HTTP 代理
          *
          * @param host 代理主机名

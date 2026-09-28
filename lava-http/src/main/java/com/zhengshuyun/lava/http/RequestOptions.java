@@ -56,6 +56,8 @@ public final class RequestOptions {
 
     /**
      * 返回不覆盖客户端配置的默认单次请求选项。
+     *
+     * @return 默认请求选项
      */
     public static RequestOptions defaults() {
         return new Builder().build();
@@ -95,6 +97,9 @@ public final class RequestOptions {
                 && callTimeout == null && maxBufferedResponseBytes == null;
     }
 
+    /**
+     * {@link RequestOptions} 的构建器
+     */
     public static final class Builder {
         /**
          * 待构建的连接超时。
@@ -116,6 +121,12 @@ public final class RequestOptions {
          * 待构建的缓冲响应上限。
          */
         private @Nullable Integer maxBufferedResponseBytes;
+
+        /**
+         * 创建构建器。
+         */
+        public Builder() {
+        }
 
         /**
          * 设置连接超时覆盖值。

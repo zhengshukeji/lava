@@ -32,6 +32,9 @@ public record SseEvent(@Nullable String id, String type, String data) {
      */
     public static final String DEFAULT_TYPE = "message";
 
+    /**
+     * 紧凑构造器：空白事件类型归一化为默认类型，并校验数据非空。
+     */
     public SseEvent {
         if (type == null || type.isBlank()) {
             type = DEFAULT_TYPE;

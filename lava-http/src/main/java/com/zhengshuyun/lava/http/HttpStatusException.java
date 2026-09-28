@@ -20,9 +20,21 @@ package com.zhengshuyun.lava.http;
  * 调用方显式要求成功但服务端返回非 2xx 时抛出的异常。
  */
 public final class HttpStatusException extends RuntimeException {
+    /**
+     * 失败正文的最大保留字节数。
+     */
     private static final int MAX_ERROR_BODY_BYTES = 64 * 1024;
+    /**
+     * 失败响应的 HTTP 状态码。
+     */
     private final int statusCode;
+    /**
+     * 已脱敏的失败响应头。
+     */
     private final HttpHeaders headers;
+    /**
+     * 有界的失败响应正文。
+     */
     private final String responseBody;
 
     HttpStatusException(HttpResponse response) {
@@ -34,16 +46,28 @@ public final class HttpStatusException extends RuntimeException {
         responseBody = new String(body, 0, length, response.charset());
     }
 
+    /**
+     * 返回失败响应的 HTTP 状态码。
+     *
+     * @return 状态码
+     */
     public int statusCode() {
         return statusCode;
     }
 
+    /**
+     * 返回已脱敏的失败响应头。
+     *
+     * @return 响应头
+     */
     public HttpHeaders headers() {
         return headers;
     }
 
     /**
      * 返回有界响应正文；异常的 toString 不会包含正文。
+     *
+     * @return 失败响应正文
      */
     public String responseBody() {
         return responseBody;

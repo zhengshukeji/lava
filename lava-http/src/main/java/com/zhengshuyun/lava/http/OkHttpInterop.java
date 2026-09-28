@@ -36,6 +36,9 @@ public final class OkHttpInterop {
 
     /**
      * 包装外部客户端，但不接管其 dispatcher、连接池或缓存。
+     *
+     * @param client 外部管理生命周期的 OkHttp 客户端
+     * @return 不拥有底层资源的 Lava 客户端
      */
     public static HttpClient borrowed(OkHttpClient client) {
         return borrowed(client, HttpClient.DEFAULT_MAX_BUFFERED_RESPONSE_BYTES);
@@ -54,6 +57,9 @@ public final class OkHttpInterop {
 
     /**
      * 包装外部客户端，并负责关闭其资源。
+     *
+     * @param client 由返回客户端关闭的 OkHttp 客户端
+     * @return 拥有底层资源的 Lava 客户端
      */
     public static HttpClient owned(OkHttpClient client) {
         return owned(client, HttpClient.DEFAULT_MAX_BUFFERED_RESPONSE_BYTES);
@@ -119,6 +125,9 @@ public final class OkHttpInterop {
 
     /**
      * 返回底层客户端以供高级诊断；不会转移所有权。
+     *
+     * @param client Lava 客户端
+     * @return 底层 OkHttp 客户端
      */
     public static OkHttpClient unwrap(HttpClient client) {
         return ValidationUtils.requireNonNull(client, "client must not be null").okHttpClient();

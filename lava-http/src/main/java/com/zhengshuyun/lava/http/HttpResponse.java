@@ -277,6 +277,9 @@ public final class HttpResponse {
 
     /**
      * 显式要求 2xx；失败时保留有界响应上下文。
+     *
+     * @return 当前响应
+     * @throws HttpStatusException 状态码非 2xx 时抛出
      */
     public HttpResponse requireSuccess() {
         if (!isSuccessful()) {
@@ -287,6 +290,10 @@ public final class HttpResponse {
 
     /**
      * 使用客户端配置的 JSON 编解码器读取响应。
+     *
+     * @param <T>  目标 Java 类型
+     * @param type 目标类型的 Class 对象
+     * @return 解码后的对象
      */
     public <T> T bodyAs(Class<T> type) {
         return jsonCodec.read(body,
@@ -295,6 +302,10 @@ public final class HttpResponse {
 
     /**
      * 使用客户端配置的 JSON 编解码器读取带泛型信息的响应。
+     *
+     * @param <T>  目标 Java 类型
+     * @param type 带泛型信息的类型引用
+     * @return 解码后的对象
      */
     public <T> T bodyAs(TypeReference<T> type) {
         return jsonCodec.read(body,

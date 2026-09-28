@@ -80,6 +80,9 @@ public final class SseOptions {
         return lastEventId;
     }
 
+    /**
+     * {@link SseOptions} 的构建器
+     */
     public static final class Builder {
         /**
          * 待构建的读取空闲超时。
@@ -89,6 +92,12 @@ public final class SseOptions {
          * 待构建的事件恢复游标。
          */
         private @Nullable String lastEventId;
+
+        /**
+         * 创建构建器。
+         */
+        public Builder() {
+        }
 
         /**
          * 设置两个 SSE 事件之间允许的最大间隔。

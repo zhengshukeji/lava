@@ -20,7 +20,16 @@ package com.zhengshuyun.lava.http;
  * SSE 会话终止原因。
  */
 public enum SseTermination {
+    /**
+     * 调用方主动取消会话。
+     */
     CANCELLED,
+    /**
+     * 服务端关闭事件流后会话正常结束。
+     */
     REMOTE_CLOSED,
+    /**
+     * 会话因网络或协议错误失败终止。
+     */
     FAILED
 }

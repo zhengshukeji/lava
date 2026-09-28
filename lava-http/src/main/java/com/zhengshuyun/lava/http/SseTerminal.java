@@ -26,6 +26,9 @@ import org.jspecify.annotations.Nullable;
  * @param failure     失败详情；非失败终态时为 null
  */
 public record SseTerminal(SseTermination termination, @Nullable SseFailure failure) {
+    /**
+     * 紧凑构造器：校验终止原因非空，且失败详情仅在 FAILED 终态出现。
+     */
     public SseTerminal {
         ValidationUtils.requireNonNull(termination, "termination must not be null");
         if ((termination == SseTermination.FAILED) != (failure != null)) {

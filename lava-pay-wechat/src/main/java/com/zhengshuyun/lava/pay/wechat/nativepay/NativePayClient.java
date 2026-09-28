@@ -25,6 +25,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.net.URI;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 
 /**
  * 微信支付 APIv3 普通商户 Native 支付入口。
@@ -37,6 +38,15 @@ public final class NativePayClient {
      * Native 下单接口的固定 API 路径。
      */
     private static final String PREPAY_PATH = "/v3/pay/transactions/native";
+    /**
+     * 支付截止时间的协议格式 {@code yyyy-MM-DDTHH:mm:ss+TIMEZONE}，精确到秒。
+     *
+     * <p>不能交给 Jackson 默认序列化：默认格式会带上小数秒（Linux 上 {@code Instant.now()}
+     * 精确到纳秒），微信支付会以 {@code PARAM_ERROR} 拒绝；UTC 偏移也会被写成 {@code Z}
+     * 而不是文档要求的 {@code +00:00}。</p>
+     */
+    private static final DateTimeFormatter TIME_EXPIRE = DateTimeFormatter.ofPattern(
+            "yyyy-MM-dd'T'HH:mm:ssxxx");
 
     /**
      * 共享协议能力和根客户端关闭状态所在的传输层。
@@ -82,12 +92,15 @@ public final class NativePayClient {
         Boolean profitSharing = request.profitSharing();
         SettleInfo settleInfo = profitSharing == null
                 ? null : new SettleInfo(profitSharing);
+        // 截止时间按协议格式输出，秒以下直接舍去，保留调用方给出的时区偏移
+        OffsetDateTime timeExpire = request.timeExpire();
+        String formattedTimeExpire = timeExpire == null ? null : TIME_EXPIRE.format(timeExpire);
         PrepayPayload payload = new PrepayPayload(
                 appid,
                 transport.mchid(),
                 request.description(),
                 request.outTradeNo(),
-                request.timeExpire(),
+                formattedTimeExpire,
                 request.attach(),
                 notifyUrl.toASCIIString(),
                 request.goodsTag(),
@@ -118,7 +131,7 @@ public final class NativePayClient {
      * @param mchid         根客户端固定绑定的商户号
      * @param description   用户在微信支付侧看到的商品或服务描述
      * @param outTradeNo    商户订单号，用于创建并关联微信支付订单
-     * @param timeExpire    可选支付截止时间
+     * @param timeExpire    可选支付截止时间，已按协议格式精确到秒
      * @param attach        可选商户自定义数据包
      * @param notifyUrl     应用上下文固定使用的支付结果通知地址
      * @param goodsTag      可选订单优惠标记
@@ -133,7 +146,7 @@ public final class NativePayClient {
             @JsonProperty("mchid") String mchid,
             @JsonProperty("description") String description,
             @JsonProperty("out_trade_no") String outTradeNo,
-            @JsonProperty("time_expire") @Nullable OffsetDateTime timeExpire,
+            @JsonProperty("time_expire") @Nullable String timeExpire,
             @JsonProperty("attach") @Nullable String attach,
             @JsonProperty("notify_url") String notifyUrl,
             @JsonProperty("goods_tag") @Nullable String goodsTag,

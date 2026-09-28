@@ -171,6 +171,39 @@ class WechatPayClientTest {
     }
 
     /**
+     * 验证支付截止时间按协议格式精确到秒输出：纳秒精度的时间不得带小数秒，UTC 偏移不得写成 Z。
+     */
+    @Test
+    void nativePrepayFormatsTimeExpireToSeconds() {
+        server.enqueueSigned(200,
+                "{\"code_url\":\"weixin://wxpay/bizpayurl?pr=test\"}");
+        server.enqueueSigned(200,
+                "{\"code_url\":\"weixin://wxpay/bizpayurl?pr=test\"}");
+        var nativePay = client.application(APPID, "https://example.com/pay/notify").nativePay();
+        Instant expireAt = Instant.parse("2026-09-28T07:23:39.505123456Z");
+
+        nativePay.prepay(NativePrepayRequest.builder()
+                .description("测试订单")
+                .outTradeNo("ORDER_001")
+                .amount(100)
+                .timeExpire(expireAt.atOffset(ZoneOffset.ofHours(8)))
+                .build());
+        nativePay.prepay(NativePrepayRequest.builder()
+                .description("测试订单")
+                .outTradeNo("ORDER_002")
+                .amount(100)
+                .timeExpire(expireAt.atOffset(ZoneOffset.UTC))
+                .build());
+
+        JsonNode east8 = JsonCodec.defaultCodec().readTree(
+                new String(server.takeRequest().body(), StandardCharsets.UTF_8));
+        assertEquals("2026-09-28T15:23:39+08:00", east8.get("time_expire").stringValue());
+        JsonNode utc = JsonCodec.defaultCodec().readTree(
+                new String(server.takeRequest().body(), StandardCharsets.UTF_8));
+        assertEquals("2026-09-28T07:23:39+00:00", utc.get("time_expire").stringValue());
+    }
+
+    /**
      * 验证商户订单号查询和关单分别使用官方 APIv3 路径、HTTP 方法和商户号参数。
      */
     @Test

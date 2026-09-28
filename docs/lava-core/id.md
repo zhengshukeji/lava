@@ -15,8 +15,11 @@
 普通随机 UUID 直接通过 `IdUtils` 生成：
 
 ```java
+// UUID 对象
 UUID id = IdUtils.nextUUID();
+// 含连字符文本，如 6c033286-c5dd-46f2-8523-42ba142ac81b
 String text = IdUtils.nextUUIDString();
+// 不含连字符文本，32 个十六进制字符
 String compact = IdUtils.nextUUIDStringWithoutHyphens();
 ```
 
@@ -27,8 +30,11 @@ String compact = IdUtils.nextUUIDStringWithoutHyphens();
 需要按生成时间排序时使用 UUIDv7：
 
 ```java
+// UUID 对象
 UUID id = IdUtils.nextUUIDv7();
+// 含连字符文本，如 01a0e959-d824-758d-84e5-d4afa562f693
 String text = IdUtils.nextUUIDv7String();
+// 不含连字符文本
 String compact = IdUtils.nextUUIDv7StringWithoutHyphens();
 ```
 
@@ -50,10 +56,14 @@ UUIDv7 的单调保证不跨进程共享。同一毫秒内的连续值具有可�
 应用必须为每个并发运行实例分配不同的 `workerId`：
 
 ```java
+// 37 是本实例的 workerId，部署时保证各实例不同
 SnowflakeIdGenerator generator = IdUtils.newSnowflakeGenerator(37);
 
+// 64 位长整型 ID
 long id = generator.nextId();
+// 字符串形态
 String text = generator.nextIdString();
+// 从 ID 反解出生成时刻
 Instant createdAt = SnowflakeIdGenerator.timestamp(id);
 ```
 

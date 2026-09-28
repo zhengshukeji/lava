@@ -44,7 +44,7 @@
 | 重试 | `RetryPolicy`、`RetryDelayStrategy` | 受控重试、指数退避、完全抖动、尝试观测 |
 | IO | `ByteStreamUtils`、`InputStreamSource` | 有界读取、流复制、明确资源所有权 |
 | 字符串 | `StringUtils` | 空值安全判断、空值转换和默认值 |
-| 容器 | `CollectionUtils`、`MapUtils` | 集合与映射的空值安全判断 |
+| 集合 | `CollectionUtils`、`MapUtils` | 集合与映射的空值安全判断 |
 | 时间 | `DateTimeFormatterUtils`、`TimeUtils`、`DurationFormatter` | 严格日期格式、兼容解析、时长展示 |
 | 校验 | `ValidationUtils` | 参数、非空白文本、非空集合与 Map 校验 |
 

@@ -58,7 +58,8 @@ export default defineConfig({
             { text: 'ID 生成', link: '/lava-core/id' },
             { text: '重试', link: '/lava-core/retry' },
             { text: 'IO 与数据量', link: '/lava-core/io' },
-            { text: '时间与参数校验', link: '/lava-core/time-validation' }
+            { text: '字符串、集合与校验', link: '/lava-core/lang' },
+            { text: '时间格式化与解析', link: '/lava-core/time' }
           ]
         }
       ],

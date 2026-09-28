@@ -29,15 +29,4 @@ import java.net.URI;
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record NativePrepayResponse(@JsonProperty("code_url") URI codeUrl) {
-    /**
-     * 校验 Native 下单结果。
-     */
-    public NativePrepayResponse {
-        ValidationUtils.requireNonNull(codeUrl, "codeUrl must not be null");
-        ValidationUtils.requireTrue(codeUrl.isAbsolute()
-                        && "weixin".equalsIgnoreCase(codeUrl.getScheme()),
-                "codeUrl must be an absolute weixin URI");
-        ValidationUtils.requireTrue(codeUrl.toASCIIString().length() <= 64,
-                "codeUrl must not exceed 64 characters");
-    }
 }

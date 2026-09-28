@@ -88,18 +88,30 @@ class PemKeyUtilsTest {
                         "-----BEGIN PRIVATE KEY-----\n!!!!\n-----END PRIVATE KEY-----"));
         assertThrows(CryptoException.class,
                 () -> CryptoUtils.pemReadEcPrivateKey(
-                        "x".repeat(PemKeyUtils.DEFAULT_MAX_PEM_CHARACTERS + 1)));
+                        "x".repeat(65_537)));
     }
 
     @Test
-    void rsaKeysAndRsaDerAreRejected() throws Exception {
+    void rsaKeysRoundTripButAreNotAcceptedAsEcKeys() throws Exception {
         KeyPair rsa = KeyPairGenerator.getInstance("RSA").generateKeyPair();
 
-        assertThrows(CryptoException.class, () -> CryptoUtils.pemEncode(rsa.getPrivate()));
-        assertThrows(CryptoException.class, () -> CryptoUtils.pemEncode(rsa.getPublic()));
+        String privatePem = CryptoUtils.pemEncode(rsa.getPrivate());
+        String publicPem = CryptoUtils.pemEncode(rsa.getPublic());
+        assertEquals(rsa.getPrivate(), CryptoUtils.pemReadRsaPrivateKey(privatePem));
+        assertEquals(rsa.getPublic(), CryptoUtils.pemReadRsaPublicKey(publicPem));
 
-        String encodedRsaPrivate = toPrivatePem(rsa.getPrivate().getEncoded());
-        assertThrows(CryptoException.class, () -> CryptoUtils.pemReadEcPrivateKey(encodedRsaPrivate));
+        assertThrows(CryptoException.class, () -> CryptoUtils.pemReadEcPrivateKey(privatePem));
+    }
+
+    @Test
+    void rawBase64DerIsAcceptedWithoutPemBoundaries() throws Exception {
+        KeyPair rsa = KeyPairGenerator.getInstance("RSA").generateKeyPair();
+        String rawPrivate = java.util.Base64.getEncoder().encodeToString(rsa.getPrivate().getEncoded());
+        String rawPublic = java.util.Base64.getEncoder().encodeToString(rsa.getPublic().getEncoded());
+
+        assertEquals(rsa.getPrivate(), CryptoUtils.pemReadRsaPrivateKey(rawPrivate));
+        assertEquals(rsa.getPublic(), CryptoUtils.pemReadRsaPublicKey("  " + rawPublic + "\n"));
+        assertThrows(CryptoException.class, () -> CryptoUtils.pemReadRsaPrivateKey(rawPublic));
     }
 
     @Test

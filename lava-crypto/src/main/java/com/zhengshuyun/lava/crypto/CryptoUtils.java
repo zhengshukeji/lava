@@ -177,60 +177,60 @@ public final class CryptoUtils {
     }
 
     /**
-     * 将 EC 私钥编码为 PKCS#8 PEM，或将 EC 公钥编码为 X.509 PEM。
+     * 将私钥编码为 PKCS#8 PEM，或将公钥编码为 X.509 PEM。
      *
-     * @param key 待编码的 EC 密钥
+     * @param key 待编码的密钥
      * @return 含头尾边界和换行的 PEM 文本
      * @throws IllegalArgumentException key 为 null 时抛出
-     * @throws CryptoException          密钥类型、格式或编码不受支持时抛出
+     * @throws CryptoException          密钥不可导出或编码格式不受支持时抛出
      */
     public static String pemEncode(Key key) {
         return PemKeyUtils.toPem(key);
     }
 
     /**
-     * 严格读取 PKCS#8 EC 私钥 PEM。
+     * 读取 PKCS#8 EC 私钥，接受 PEM 或裸 Base64 DER。
      *
-     * @param pem 仅含一个私钥边界块的 PEM 文本
+     * @param pem PEM 或裸 Base64 DER 文本
      * @return EC 私钥
      * @throws IllegalArgumentException pem 为 null 时抛出
-     * @throws CryptoException          PEM 格式、大小或密钥内容无效时抛出
+     * @throws CryptoException          内容不是有效的对应类型密钥时抛出
      */
     public static ECPrivateKey pemReadEcPrivateKey(String pem) {
         return PemKeyUtils.readEcPrivateKey(pem);
     }
 
     /**
-     * 严格读取 X.509 SubjectPublicKeyInfo EC 公钥 PEM。
+     * 读取 X.509 SubjectPublicKeyInfo EC 公钥，接受 PEM 或裸 Base64 DER。
      *
-     * @param pem 仅含一个公钥边界块的 PEM 文本
+     * @param pem PEM 或裸 Base64 DER 文本
      * @return EC 公钥
      * @throws IllegalArgumentException pem 为 null 时抛出
-     * @throws CryptoException          PEM 格式、大小或密钥内容无效时抛出
+     * @throws CryptoException          内容不是有效的对应类型密钥时抛出
      */
     public static ECPublicKey pemReadEcPublicKey(String pem) {
         return PemKeyUtils.readEcPublicKey(pem);
     }
 
     /**
-     * 严格读取 PKCS#8 RSA 私钥 PEM。
+     * 读取 PKCS#8 RSA 私钥，接受 PEM 或裸 Base64 DER。
      *
-     * @param pem 仅含一个私钥边界块的 PEM 文本
+     * @param pem PEM 或裸 Base64 DER 文本
      * @return RSA 私钥
      * @throws IllegalArgumentException pem 为 null 时抛出
-     * @throws CryptoException          PEM 格式、大小或密钥内容无效时抛出
+     * @throws CryptoException          内容不是有效的对应类型密钥时抛出
      */
     public static RSAPrivateKey pemReadRsaPrivateKey(String pem) {
         return PemKeyUtils.readRsaPrivateKey(pem);
     }
 
     /**
-     * 严格读取 X.509 SubjectPublicKeyInfo RSA 公钥 PEM。
+     * 读取 X.509 SubjectPublicKeyInfo RSA 公钥，接受 PEM 或裸 Base64 DER。
      *
-     * @param pem 仅含一个公钥边界块的 PEM 文本
+     * @param pem PEM 或裸 Base64 DER 文本
      * @return RSA 公钥
      * @throws IllegalArgumentException pem 为 null 时抛出
-     * @throws CryptoException          PEM 格式、大小或密钥内容无效时抛出
+     * @throws CryptoException          内容不是有效的对应类型密钥时抛出
      */
     public static RSAPublicKey pemReadRsaPublicKey(String pem) {
         return PemKeyUtils.readRsaPublicKey(pem);

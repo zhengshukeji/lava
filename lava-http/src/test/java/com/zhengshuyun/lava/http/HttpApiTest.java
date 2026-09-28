@@ -51,33 +51,33 @@ class HttpApiTest {
                 .cookie("a=1")
                 .build();
 
-        assertEquals(HttpMethod.GET, request.getMethod());
-        assertTrue(request.getUrl().contains("a=new"));
-        assertFalse(request.getUrl().contains("a=old"));
-        assertTrue(request.getUrl().contains("flag"));
-        assertTrue(request.getUrl().contains("space=a%20b"));
-        assertEquals("one", request.getHeaders().get("X-Test"));
-        assertEquals("two", request.getHeaders().get("X-Other"));
-        assertEquals("agent", request.getHeaders().get("User-Agent"));
-        assertEquals("a=1", request.getHeaders().get("Cookie"));
+        assertEquals(HttpMethod.GET, request.method());
+        assertTrue(request.url().contains("a=new"));
+        assertFalse(request.url().contains("a=old"));
+        assertTrue(request.url().contains("flag"));
+        assertTrue(request.url().contains("space=a%20b"));
+        assertEquals("one", request.headers().get("X-Test"));
+        assertEquals("two", request.headers().get("X-Other"));
+        assertEquals("agent", request.headers().get("User-Agent"));
+        assertEquals("a=1", request.headers().get("Cookie"));
 
-        assertEquals(HttpMethod.POST, HttpRequest.post("https://example.test").build().getMethod());
-        assertEquals(HttpMethod.PUT, HttpRequest.put("https://example.test").build().getMethod());
-        assertEquals(HttpMethod.DELETE, HttpRequest.delete("https://example.test").build().getMethod());
-        assertEquals(HttpMethod.PATCH, HttpRequest.patch("https://example.test").build().getMethod());
-        assertEquals(HttpMethod.HEAD, HttpRequest.head("https://example.test").build().getMethod());
+        assertEquals(HttpMethod.POST, HttpRequest.post("https://example.test").build().method());
+        assertEquals(HttpMethod.PUT, HttpRequest.put("https://example.test").build().method());
+        assertEquals(HttpMethod.DELETE, HttpRequest.delete("https://example.test").build().method());
+        assertEquals(HttpMethod.PATCH, HttpRequest.patch("https://example.test").build().method());
+        assertEquals(HttpMethod.HEAD, HttpRequest.head("https://example.test").build().method());
         assertEquals(HttpMethod.GET,
-                HttpRequest.get("https://example.test", StandardCharsets.UTF_16).build().getMethod());
+                HttpRequest.get("https://example.test", StandardCharsets.UTF_16).build().method());
         assertEquals(HttpMethod.POST,
-                HttpRequest.post("https://example.test", StandardCharsets.UTF_16).build().getMethod());
+                HttpRequest.post("https://example.test", StandardCharsets.UTF_16).build().method());
         assertEquals(HttpMethod.PUT,
-                HttpRequest.put("https://example.test", StandardCharsets.UTF_16).build().getMethod());
+                HttpRequest.put("https://example.test", StandardCharsets.UTF_16).build().method());
         assertEquals(HttpMethod.DELETE,
-                HttpRequest.delete("https://example.test", StandardCharsets.UTF_16).build().getMethod());
+                HttpRequest.delete("https://example.test", StandardCharsets.UTF_16).build().method());
         assertEquals(HttpMethod.PATCH,
-                HttpRequest.patch("https://example.test", StandardCharsets.UTF_16).build().getMethod());
+                HttpRequest.patch("https://example.test", StandardCharsets.UTF_16).build().method());
         assertEquals(HttpMethod.HEAD,
-                HttpRequest.head("https://example.test", StandardCharsets.UTF_16).build().getMethod());
+                HttpRequest.head("https://example.test", StandardCharsets.UTF_16).build().method());
 
         HttpRequest relative = HttpRequest.get("echo")
                 .addQueryParam("q", "a b")
@@ -177,7 +177,7 @@ class HttpApiTest {
             Locale.setDefault(original);
         }
         HttpMethod custom = HttpMethod.valueOf("propfind");
-        assertEquals("PROPFIND", custom.getName());
+        assertEquals("PROPFIND", custom.name());
         assertTrue(custom.permitsRequestBody());
         assertFalse(HttpMethod.GET.permitsRequestBody());
         assertTrue(HttpMethod.PATCH.requiresRequestBody());
@@ -244,60 +244,50 @@ class HttpApiTest {
     @Test
     void proxyFactoriesKeepNativeAuthenticatorInternal() throws Exception {
         HttpProxy plain = HttpProxy.of("127.0.0.1", 8080);
-        assertNotNull(plain.getProxySelector());
-        assertNull(plain.getAuthenticator());
+        assertNotNull(plain.proxySelector());
+        assertNull(plain.authenticator());
         assertEquals(Proxy.Type.HTTP,
-                plain.getProxySelector().select(new java.net.URI("http://example.test")).getFirst().type());
+                plain.proxySelector().select(new java.net.URI("http://example.test")).getFirst().type());
 
         HttpProxy authenticated = HttpProxy.of("127.0.0.1", 8080, "user", "password");
-        assertNotNull(authenticated.getAuthenticator());
+        assertNotNull(authenticated.authenticator());
         HttpProxy socks = HttpProxy.socks("127.0.0.1", 1080);
         assertEquals(Proxy.Type.SOCKS,
-                socks.getProxySelector().select(new java.net.URI("http://example.test")).getFirst().type());
+                socks.proxySelector().select(new java.net.URI("http://example.test")).getFirst().type());
         HttpProxy custom = HttpProxy.builder()
                 .proxySelector(ProxySelectorFactory.direct())
-                .authenticator(authenticated.getAuthenticator())
+                .authenticator(authenticated.authenticator())
                 .build();
-        assertNotNull(custom.getProxySelector());
-        assertNotNull(custom.getAuthenticator());
+        assertNotNull(custom.proxySelector());
+        assertNotNull(custom.authenticator());
     }
 
     @Test
     void metadataRequiresCompleteNonNegativeInputAndRedacts() {
         Instant start = Instant.parse("2026-01-01T00:00:00Z");
-        HttpCallMetadata metadata = HttpCallMetadata.builder()
-                .requestId("id")
-                .url("https://example.test?q=ok&token=secret")
-                .method("GET")
-                .requestTime(start)
-                .responseTime(start.plusSeconds(1))
-                .duration(Duration.ofSeconds(1))
-                .requestHeaders(HttpHeaders.of(
+        HttpCallMetadata metadata = new HttpCallMetadata(
+                "id", "GET", "https://example.test?q=ok&token=secret",
+                start, start.plusSeconds(1), Duration.ofSeconds(1),
+                HttpHeaders.of(
                         "Authorization", "secret",
-                        "Referer", "https://example.test/source?clientSecret=referer-secret"))
-                .responseHeaders(HttpHeaders.of(
+                        "Referer", "https://example.test/source?clientSecret=referer-secret"),
+                HttpHeaders.of(
                         "Set-Cookie", "secret",
-                        "Location", "https://example.test/next?accessToken=location-secret"))
-                .protocol(null)
-                .statusCode(404)
-                .statusMessage("Not Found")
-                .build();
+                        "Location", "https://example.test/next?accessToken=location-secret"),
+                "http/1.1", 404, "Not Found");
 
-        assertFalse(metadata.getUrl().contains("secret"));
-        assertEquals("[REDACTED]", metadata.getRequestHeaders().get("Authorization"));
-        assertEquals("[REDACTED]", metadata.getResponseHeaders().get("Set-Cookie"));
-        assertFalse(metadata.getRequestHeaders().get("Referer").contains("referer-secret"));
-        assertFalse(metadata.getResponseHeaders().get("Location").contains("location-secret"));
+        assertFalse(metadata.url().contains("secret"));
+        assertEquals("[REDACTED]", metadata.requestHeaders().get("Authorization"));
+        assertEquals("[REDACTED]", metadata.responseHeaders().get("Set-Cookie"));
+        assertFalse(metadata.requestHeaders().get("Referer").contains("referer-secret"));
+        assertFalse(metadata.responseHeaders().get("Location").contains("location-secret"));
         assertFalse(metadata.toString().contains("referer-secret"));
         assertFalse(metadata.toString().contains("location-secret"));
-        assertEquals("Not Found", metadata.getStatusMessage());
+        assertEquals("Not Found", metadata.statusMessage());
         assertFalse(metadata.isSuccessful());
-        assertThrows(IllegalArgumentException.class, () -> HttpCallMetadata.builder().build());
-        assertThrows(IllegalArgumentException.class, () -> HttpCallMetadata.builder()
-                .requestId("id").url("https://example.test").method("GET")
-                .requestTime(start).responseTime(start)
-                .duration(Duration.ofNanos(-1)).requestHeaders(HttpHeaders.of())
-                .responseHeaders(HttpHeaders.of()).build());
+        assertThrows(IllegalArgumentException.class, () -> new HttpCallMetadata(
+                "id", "GET", "https://example.test", start, start, Duration.ofNanos(-1),
+                HttpHeaders.of(), HttpHeaders.of(), "http/1.1", 200, "OK"));
     }
 
     @Test

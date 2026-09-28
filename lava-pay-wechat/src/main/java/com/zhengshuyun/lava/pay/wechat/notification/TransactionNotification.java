@@ -26,16 +26,6 @@ public record TransactionNotification(
         String summary,
         Transaction transaction
 ) {
-    /**
-     * 校验通知必填字段。
-     */
-    public TransactionNotification {
-        ValidationUtils.requireNotBlank(id, "id must not be blank");
-        ValidationUtils.requireNonNull(createTime, "createTime must not be null");
-        ValidationUtils.requireNotBlank(eventType, "eventType must not be blank");
-        ValidationUtils.requireNonNull(summary, "summary must not be null");
-        ValidationUtils.requireNonNull(transaction, "transaction must not be null");
-    }
 
     /**
      * 使用后端可信订单记录核对通知中的应用、订单号和金额。

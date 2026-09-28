@@ -74,18 +74,18 @@ final class DefaultOAuth2TokenClient implements OAuth2TokenClient {
             response = http.send(request);
             // 错误响应体可能含敏感诊断信息，因此状态失败时不读取也不保留正文。
             if (!response.isSuccessful()) {
-                MailFailureKind kind = response.getCode() == 400
-                        || response.getCode() == 401
-                        || response.getCode() == 403
+                MailFailureKind kind = response.statusCode() == 400
+                        || response.statusCode() == 401
+                        || response.statusCode() == 403
                         ? MailFailureKind.AUTHENTICATION
                         : MailFailureKind.PROTOCOL;
                 throw new MailException(
                         kind, "OAuth2 token endpoint rejected refresh request with HTTP status "
-                        + response.getCode());
+                        + response.statusCode());
             }
             OAuth2TokenResponse payload;
             try {
-                payload = json.read(response.getBodyAsString(), OAuth2TokenResponse.class);
+                payload = json.read(response.bodyString(), OAuth2TokenResponse.class);
             } catch (JsonException exception) {
                 // Jackson 诊断可能引用响应原文，因此不能把异常对象保留到 cause 链中。
                 throw new MailException(MailFailureKind.PARSING, "OAuth2 token response is not valid JSON");
@@ -99,7 +99,7 @@ final class DefaultOAuth2TokenClient implements OAuth2TokenClient {
                 return new OAuth2AccessToken(payload.accessToken(), expiresAt);
             } catch (IllegalArgumentException exception) {
                 throw new MailException(
-                        MailFailureKind.PARSING, "OAuth2 token response has an invalid access_token");
+                        MailFailureKind.PARSING, "OAuth2 token response has an invalid access_token", exception);
             }
         } catch (MailException exception) {
             throw exception;
@@ -136,7 +136,7 @@ final class DefaultOAuth2TokenClient implements OAuth2TokenClient {
         try {
             return clock.instant().plusSeconds(expiresIn);
         } catch (DateTimeException | ArithmeticException exception) {
-            throw new MailException(MailFailureKind.PARSING, "OAuth2 token expiry is out of range");
+            throw new MailException(MailFailureKind.PARSING, "OAuth2 token expiry is out of range", exception);
         }
     }
 

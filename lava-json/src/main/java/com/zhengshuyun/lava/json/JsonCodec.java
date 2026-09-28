@@ -27,32 +27,34 @@ import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.type.TypeFactory;
 
 import java.io.FilterInputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.Supplier;
 
 /**
  * 不可变且线程安全的 JSON 编解码器。
  *
- * <p>原始 {@link InputStream} 仅被借入，绝不关闭；{@link Path} 由本编解码器打开并关闭。
- * 需要高级 Jackson 操作时，可通过 {@link #mapper()} 拿到底层 mapper。
+ * <p>所有失败统一抛出 {@link JsonException}，原始 Jackson 异常作为 cause 保留。读取方法永不返回
+ * null：文档为 JSON {@code null} 或内容为空时同样抛出 {@link JsonException}。原始
+ * {@link InputStream} 仅被借入，绝不关闭；{@link Path} 由本编解码器打开并关闭。需要更多 Jackson
+ * 能力时，通过 {@link #mapper()} 直接使用底层 mapper。
  */
 public final class JsonCodec {
 
     /**
-     * 进程级共享的默认编解码器，随类加载初始化。
+     * 进程级共享的默认编解码器。
      */
     private static final JsonCodec DEFAULT = new JsonCodec(JsonMapperFactory.defaultMapper());
 
-    /**
-     * 底层的不可变 Jackson mapper。
-     */
     private final ObjectMapper mapper;
 
     /**
      * 以指定 mapper 创建编解码器。
      *
-     * @param mapper 不可为 null 的 Jackson mapper
+     * @param mapper Jackson mapper
      */
     public JsonCodec(ObjectMapper mapper) {
         this.mapper = ValidationUtils.requireNonNull(mapper, "mapper");
@@ -60,6 +62,8 @@ public final class JsonCodec {
 
     /**
      * 返回进程级共享的默认编解码器。
+     *
+     * @return 默认编解码器
      */
     public static JsonCodec defaultCodec() {
         return DEFAULT;
@@ -67,6 +71,8 @@ public final class JsonCodec {
 
     /**
      * 返回底层不可变 Jackson mapper，供高级场景直接使用。
+     *
+     * @return 底层 mapper
      */
     public ObjectMapper mapper() {
         return mapper;
@@ -77,29 +83,21 @@ public final class JsonCodec {
      *
      * @param value 待编码的值，可以为 null
      * @return JSON 文本
-     * @throws JsonException 编码失败时抛出
+     * @throws JsonException 编码失败
      */
     public String write(@Nullable Object value) {
-        try {
-            return mapper.writeValueAsString(value);
-        } catch (Exception exception) {
-            throw encodingFailure(exception);
-        }
+        return encode(() -> mapper.writeValueAsString(value));
     }
 
     /**
-     * 将值编码为格式化的 JSON 字符串。
+     * 将值编码为带缩进的 JSON 字符串。
      *
      * @param value 待编码的值，可以为 null
-     * @return 含缩进和换行的 JSON 文本
-     * @throws JsonException 编码失败时抛出
+     * @return 格式化的 JSON 文本
+     * @throws JsonException 编码失败
      */
     public String writePretty(@Nullable Object value) {
-        try {
-            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(value);
-        } catch (Exception exception) {
-            throw encodingFailure(exception);
-        }
+        return encode(() -> mapper.writerWithDefaultPrettyPrinter().writeValueAsString(value));
     }
 
     /**
@@ -107,108 +105,79 @@ public final class JsonCodec {
      *
      * @param value 待编码的值，可以为 null
      * @return JSON 字节数组
-     * @throws JsonException 编码失败时抛出
+     * @throws JsonException 编码失败
      */
     public byte[] writeBytes(@Nullable Object value) {
-        try {
-            return mapper.writeValueAsBytes(value);
-        } catch (Exception exception) {
-            throw encodingFailure(exception);
-        }
+        return encode(() -> mapper.writeValueAsBytes(value));
     }
 
     /**
      * 将 JSON 文本反序列化为目标类型。
      *
-     * @param content 非空 JSON 文本
+     * @param content JSON 文本
      * @param type    目标类型
      * @param <T>     目标类型
      * @return 反序列化结果，永不为 null
-     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败
      */
     public <T> T read(String content, Class<T> type) {
-        ValidationUtils.requireNonNull(content, "content");
-        ValidationUtils.requireNonNull(type, "type");
-        try {
-            return requireDocumentValue(mapper.readValue(content, type));
-        } catch (Exception exception) {
-            throw decodingFailure(exception);
-        }
+        requireArguments(content, type);
+        return decode(() -> mapper.readValue(content, type));
     }
 
     /**
-     * 将 JSON 文本反序列化为包含泛型信息的目标类型。
+     * 将 JSON 文本反序列化为带泛型信息的目标类型。
      *
-     * @param content 非空 JSON 文本
-     * @param type    保存泛型类型信息的类型引用
+     * @param content JSON 文本
+     * @param type    保存泛型信息的类型引用
      * @param <T>     目标类型
      * @return 反序列化结果，永不为 null
-     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败
      */
     public <T> T read(String content, TypeReference<T> type) {
-        ValidationUtils.requireNonNull(content, "content");
-        ValidationUtils.requireNonNull(type, "type");
-        try {
-            return requireDocumentValue(mapper.readValue(content, type));
-        } catch (Exception exception) {
-            throw decodingFailure(exception);
-        }
+        requireArguments(content, type);
+        return decode(() -> mapper.readValue(content, type));
     }
 
     /**
      * 将 JSON 文本反序列化为 Jackson 类型模型指定的对象。
      *
-     * @param content 非空 JSON 文本
-     * @param type    Jackson 目标类型模型
+     * @param content JSON 文本
+     * @param type    Jackson 目标类型模型，可由 {@link #typeFactory()} 构造
      * @return 反序列化结果，永不为 null
-     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败
      */
     public Object read(String content, JavaType type) {
-        ValidationUtils.requireNonNull(content, "content");
-        ValidationUtils.requireNonNull(type, "type");
-        try {
-            return requireDocumentValue(mapper.readValue(content, type));
-        } catch (Exception exception) {
-            throw decodingFailure(exception);
-        }
+        requireArguments(content, type);
+        return decode(() -> mapper.readValue(content, type));
     }
 
     /**
      * 将 JSON 字节反序列化为目标类型。
      *
-     * @param content 非空 JSON 字节
+     * @param content JSON 字节
      * @param type    目标类型
      * @param <T>     目标类型
      * @return 反序列化结果，永不为 null
-     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败
      */
     public <T> T read(byte[] content, Class<T> type) {
-        ValidationUtils.requireNonNull(content, "content");
-        ValidationUtils.requireNonNull(type, "type");
-        try {
-            return requireDocumentValue(mapper.readValue(content, type));
-        } catch (Exception exception) {
-            throw decodingFailure(exception);
-        }
+        requireArguments(content, type);
+        return decode(() -> mapper.readValue(content, type));
     }
 
     /**
-     * 将 JSON 字节反序列化为包含泛型信息的目标类型。
+     * 将 JSON 字节反序列化为带泛型信息的目标类型。
      *
-     * @param content 非空 JSON 字节
-     * @param type    保存泛型类型信息的类型引用
+     * @param content JSON 字节
+     * @param type    保存泛型信息的类型引用
      * @param <T>     目标类型
      * @return 反序列化结果，永不为 null
-     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败
      */
     public <T> T read(byte[] content, TypeReference<T> type) {
-        ValidationUtils.requireNonNull(content, "content");
-        ValidationUtils.requireNonNull(type, "type");
-        try {
-            return requireDocumentValue(mapper.readValue(content, type));
-        } catch (Exception exception) {
-            throw decodingFailure(exception);
-        }
+        requireArguments(content, type);
+        return decode(() -> mapper.readValue(content, type));
     }
 
     /**
@@ -218,35 +187,25 @@ public final class JsonCodec {
      * @param type  目标类型
      * @param <T>   目标类型
      * @return 反序列化结果，永不为 null
-     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败
      */
     public <T> T read(InputStream input, Class<T> type) {
-        ValidationUtils.requireNonNull(input, "input");
-        ValidationUtils.requireNonNull(type, "type");
-        try {
-            return requireDocumentValue(mapper.readValue(nonClosing(input), type));
-        } catch (Exception exception) {
-            throw decodingFailure(exception);
-        }
+        requireArguments(input, type);
+        return decode(() -> mapper.readValue(nonClosing(input), type));
     }
 
     /**
-     * 从借入的流中反序列化包含泛型信息的目标类型，不会关闭调用方的流。
+     * 从借入的流反序列化为带泛型信息的目标类型，不关闭该流。
      *
      * @param input 待读取的流
-     * @param type  保存泛型类型信息的类型引用
+     * @param type  保存泛型信息的类型引用
      * @param <T>   目标类型
      * @return 反序列化结果，永不为 null
-     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
+     * @throws JsonException 文档为 JSON null、内容为空或解析失败
      */
     public <T> T read(InputStream input, TypeReference<T> type) {
-        ValidationUtils.requireNonNull(input, "input");
-        ValidationUtils.requireNonNull(type, "type");
-        try {
-            return requireDocumentValue(mapper.readValue(nonClosing(input), type));
-        } catch (Exception exception) {
-            throw decodingFailure(exception);
-        }
+        requireArguments(input, type);
+        return decode(() -> mapper.readValue(nonClosing(input), type));
     }
 
     /**
@@ -256,51 +215,49 @@ public final class JsonCodec {
      * @param type 目标类型
      * @param <T>  目标类型
      * @return 反序列化结果，永不为 null
-     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
+     * @throws JsonException 文件读取失败、文档为 JSON null、内容为空或解析失败
      */
     public <T> T read(Path path, Class<T> type) {
-        ValidationUtils.requireNonNull(path, "path");
-        ValidationUtils.requireNonNull(type, "type");
-        try (InputStream input = Files.newInputStream(path)) {
-            return requireDocumentValue(mapper.readValue(input, type));
-        } catch (Exception exception) {
-            throw decodingFailure(exception);
-        }
+        requireArguments(path, type);
+        return decode(() -> {
+            try (InputStream input = Files.newInputStream(path)) {
+                return mapper.readValue(input, type);
+            } catch (IOException exception) {
+                throw new UncheckedIOException(exception);
+            }
+        });
     }
 
     /**
-     * 打开并关闭指定文件，然后反序列化为包含泛型信息的目标类型。
+     * 打开并关闭指定文件，反序列化为带泛型信息的目标类型。
      *
      * @param path JSON 文件路径
-     * @param type 保存泛型类型信息的类型引用
+     * @param type 保存泛型信息的类型引用
      * @param <T>  目标类型
      * @return 反序列化结果，永不为 null
-     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
+     * @throws JsonException 文件读取失败、文档为 JSON null、内容为空或解析失败
      */
     public <T> T read(Path path, TypeReference<T> type) {
-        ValidationUtils.requireNonNull(path, "path");
-        ValidationUtils.requireNonNull(type, "type");
-        try (InputStream input = Files.newInputStream(path)) {
-            return requireDocumentValue(mapper.readValue(input, type));
-        } catch (Exception exception) {
-            throw decodingFailure(exception);
-        }
+        requireArguments(path, type);
+        return decode(() -> {
+            try (InputStream input = Files.newInputStream(path)) {
+                return mapper.readValue(input, type);
+            } catch (IOException exception) {
+                throw new UncheckedIOException(exception);
+            }
+        });
     }
 
     /**
      * 将 JSON 文本解析为树模型。
      *
-     * @param content 非空 JSON 文本
+     * @param content JSON 文本
      * @return 根节点，永不为 null
-     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
+     * @throws JsonException 内容为空或解析失败
      */
     public JsonNode readTree(String content) {
         ValidationUtils.requireNonNull(content, "content");
-        try {
-            return requireDocumentValue(mapper.readTree(content));
-        } catch (Exception exception) {
-            throw decodingFailure(exception);
-        }
+        return decode(() -> mapper.readTree(content));
     }
 
     /**
@@ -308,33 +265,25 @@ public final class JsonCodec {
      *
      * @param input 待读取的流
      * @return 根节点，永不为 null
-     * @throws JsonException 文档为 JSON null、内容为空或解析失败时抛出
+     * @throws JsonException 内容为空或解析失败
      */
     public JsonNode readTree(InputStream input) {
         ValidationUtils.requireNonNull(input, "input");
-        try {
-            return requireDocumentValue(mapper.readTree(nonClosing(input)));
-        } catch (Exception exception) {
-            throw decodingFailure(exception);
-        }
+        return decode(() -> mapper.readTree(nonClosing(input)));
     }
 
     /**
-     * 在内存中将 JSON 兼容值转换为指定类型。
+     * 在内存中将 JSON 兼容值转换为指定类型，例如 {@code Map} 转 POJO。
      *
-     * @param value 待转换的值，为 null 时抛 {@link JsonException}（null 不携带类型信息，无转换语义）
+     * @param value 待转换的值；为 null 时抛出 {@link JsonException}（null 不携带类型信息）
      * @param type  目标类型
      * @param <T>   目标类型
      * @return 转换结果，永不为 null
-     * @throws JsonException 值为 null、值与目标类型不兼容或转换失败时抛出
+     * @throws JsonException 值为 null、类型不兼容或转换失败
      */
     public <T> T convert(@Nullable Object value, Class<T> type) {
         ValidationUtils.requireNonNull(type, "type");
-        try {
-            return requireDocumentValue(mapper.convertValue(value, type));
-        } catch (Exception exception) {
-            throw wrappingFailure(exception, "Failed to convert JSON-compatible value");
-        }
+        return call(() -> mapper.convertValue(value, type), "Failed to convert JSON-compatible value");
     }
 
     /**
@@ -356,46 +305,51 @@ public final class JsonCodec {
     }
 
     /**
-     * 返回类型工厂，用于构造泛型 {@link JavaType}。
+     * 返回底层 mapper 的类型工厂，用于构造 {@link JavaType}。
      *
-     * @return 此 mapper 的类型工厂
+     * @return 类型工厂
      */
     public TypeFactory typeFactory() {
         return mapper.getTypeFactory();
     }
 
-    private static InputStream nonClosing(InputStream input) {
-        return new FilterInputStream(input) {
-            @Override
-            public void close() {
-                // 借入的流归调用方所有。
-            }
-        };
+    private static void requireArguments(Object content, Object type) {
+        ValidationUtils.requireNonNull(content, "content");
+        ValidationUtils.requireNonNull(type, "type");
     }
 
-    private static <T> T requireDocumentValue(@Nullable T value) {
+    private static <T> T encode(Supplier<@Nullable T> action) {
+        return call(action, "Failed to encode JSON");
+    }
+
+    private static <T> T decode(Supplier<@Nullable T> action) {
+        return call(action, "Failed to decode JSON");
+    }
+
+    /**
+     * 统一执行 Jackson 调用：非 null 结果原样返回，null 结果与任何异常都转为 {@link JsonException}。
+     */
+    private static <T> T call(Supplier<@Nullable T> action, String failureMessage) {
+        T value;
+        try {
+            value = action.get();
+        } catch (JsonException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw new JsonException(failureMessage, exception);
+        }
         if (value == null) {
             throw new JsonException("JSON document does not contain a value");
         }
         return value;
     }
 
-    private static JsonException encodingFailure(Exception cause) {
-        return wrappingFailure(cause, "Failed to encode JSON");
-    }
-
-    private static JsonException decodingFailure(Exception cause) {
-        return wrappingFailure(cause, "Failed to decode JSON");
-    }
-
-    /**
-     * 统一的异常出口：内部（如 requireDocumentValue）已抛出的 {@link JsonException} 携带精确语义，
-     * 原样透传避免被泛化消息二次包装；外部异常才包装为指定消息。
-     */
-    private static JsonException wrappingFailure(Exception cause, String message) {
-        if (cause instanceof JsonException jsonException) {
-            return jsonException;
-        }
-        return new JsonException(message, cause);
+    private static InputStream nonClosing(InputStream input) {
+        return new FilterInputStream(input) {
+            @Override
+            public void close() {
+                // 借入的流归调用方所有，Jackson 读取结束时不得关闭
+            }
+        };
     }
 }

@@ -100,7 +100,7 @@ public final class HttpClient implements AutoCloseable {
     /**
      * 当前仍可能接收事件的 SSE 会话。
      */
-    private final Set<HttpSseSession> activeSseSessions = ConcurrentHashMap.newKeySet();
+    private final Set<SseSession> activeSseSessions = ConcurrentHashMap.newKeySet();
 
     HttpClient(OkHttpClient okHttpClient, boolean ownsResources, int maxBufferedResponseBytes) {
         this(okHttpClient, ownsResources, maxBufferedResponseBytes, null,
@@ -181,17 +181,9 @@ public final class HttpClient implements AutoCloseable {
     }
 
     /**
-     * 执行请求并完整缓冲响应。即使服务端省略或谎报 Content-Length，仍会强制执行配置的响应上限。
-     * HTTP 4xx/5xx 响应会作为正常响应返回。
-     *
-     * @param request 待执行的请求
-     * @param options 本次调用的超时选项
-     * @return HTTP 响应，包含已缓冲的响应体
+     * 执行请求并完整缓冲响应。即使服务端省略或谎报 Content-Length，仍会强制执行响应上限；
+     * HTTP 4xx/5xx 响应作为正常响应返回。
      */
-    private HttpResponse sendBuffered(HttpRequest request, RequestOptions options) {
-        return sendBuffered(request, options, maxBufferedResponseBytes);
-    }
-
     private HttpResponse sendBuffered(HttpRequest request, RequestOptions options,
                                       @Nullable Integer maxResponseBytesOverride) {
         requireRequestAndOptions(request, options);
@@ -223,13 +215,9 @@ public final class HttpClient implements AutoCloseable {
     }
 
     /**
-     * 执行请求但不缓冲响应；调用方必须关闭返回的响应。
-     *
-     * @param request 待执行的请求
-     * @param options 本次调用的超时选项
-     * @return 调用方负责关闭的流式响应
+     * 执行请求但不缓冲响应；响应所有权转交给返回的 {@link HttpStream}。
      */
-    private HttpStreamingResponse streamInternal(HttpRequest request, RequestOptions options) {
+    private HttpStream stream(HttpRequest request, RequestOptions options) {
         requireRequestAndOptions(request, options);
         ensureOpen();
         Call call = newCall(request, options);
@@ -241,8 +229,8 @@ public final class HttpClient implements AutoCloseable {
         try {
             response = call.execute();
             ensureCallNotCancelled(call, request);
-            // 响应所有权在此转交给 HttpStreamingResponse；关闭其句柄时才移除活动调用。
-            HttpStreamingResponse result = new HttpStreamingResponse(
+            // 关闭 HttpStream 时才移除活动调用
+            HttpStream result = new HttpStream(
                     response, metadata(request, response, requestTime, startedNanos),
                     () -> activeCalls.remove(call));
             handedOff = true;
@@ -267,7 +255,7 @@ public final class HttpClient implements AutoCloseable {
      * @return 调用方负责关闭的流式响应句柄
      */
     public HttpStream openStream(HttpRequest request) {
-        return new HttpStream(streamInternal(request, RequestOptions.defaults()));
+        return stream(request, RequestOptions.defaults());
     }
 
     /**
@@ -278,26 +266,47 @@ public final class HttpClient implements AutoCloseable {
      * @return 调用方负责关闭的流式响应句柄
      */
     public HttpStream openStream(HttpRequest request, RequestOptions options) {
-        return new HttpStream(streamInternal(request,
-                ValidationUtils.requireNonNull(options, "options must not be null")));
+        return stream(request, ValidationUtils.requireNonNull(options, "options must not be null"));
     }
 
     /**
-     * 启动一个 SSE 会话。取消、远端关闭和失败是不同的终态事件。
+     * 使用客户端默认空闲超时启动 SSE 会话。
      *
      * @param request  SSE 请求
-     * @param options  本次调用的超时选项
      * @param listener 接收会话事件的监听器
-     * @return 可用于取消会话的句柄
+     * @return 可用于取消的会话句柄
      */
-    HttpSseSession openSse(HttpRequest request, RequestOptions options,
-                           HttpSseListener listener) {
-        requireRequestAndOptions(request, options);
+    public SseSession openSse(HttpRequest request, SseListener listener) {
+        return openSse(request, SseOptions.builder().idleTimeout(sseIdleTimeout).build(), listener);
+    }
+
+    /**
+     * 启动 SSE 会话。SSE 不使用总调用超时，改由空闲超时限制两次事件之间的等待；
+     * 请求配置错误在注册会话前同步抛出，不会触发终态回调。
+     *
+     * @param request  SSE 请求
+     * @param options  SSE 选项
+     * @param listener 接收会话事件的监听器
+     * @return 可用于取消的会话句柄
+     */
+    public SseSession openSse(HttpRequest request, SseOptions options, SseListener listener) {
+        ValidationUtils.requireNonNull(request, "request must not be null");
+        ValidationUtils.requireNonNull(options, "options must not be null");
         ValidationUtils.requireNonNull(listener, "listener must not be null");
         ensureOpen();
-        // 请求配置错误在注册会话前同步暴露，避免同时产生异常和终态回调。
-        Request transportRequest = request.toOkHttpRequest(baseUrl, defaultHeaders);
-        HttpSseSession session = new HttpSseSession(listener, activeSseSessions::remove);
+
+        HttpRequest effective = request;
+        // 显式指定 Accept，避免服务端按普通 HTTP 响应协商；调用方自己的请求头优先
+        if (!effective.headers().contains(HttpHeaderNames.ACCEPT)) {
+            effective = effective.withHeader(HttpHeaderNames.ACCEPT, "text/event-stream");
+        }
+        if (options.lastEventId() != null) {
+            effective = effective.withHeader(HttpHeaderNames.LAST_EVENT_ID, options.lastEventId());
+        }
+        Request transportRequest = effective.toOkHttpRequest(baseUrl, defaultHeaders);
+
+        // 会话进入终态后自行从活动集合移除
+        SseSession session = new SseSession(listener, activeSseSessions::remove);
         activeSseSessions.add(session);
         if (closed.get()) {
             session.cancel();
@@ -305,24 +314,25 @@ public final class HttpClient implements AutoCloseable {
         }
 
         try {
-            // SSE 请求默认不可重放，禁止 OkHttp 在底层静默重试造成重复生成。
-            OkHttpClient callClient = clientFor(options, true);
-            EventSource.Factory factory = EventSources.createFactory(callClient);
-            EventSource source = factory.newEventSource(
+            // SSE 请求默认不可重放，禁止 OkHttp 在底层静默重试；空闲超时由 readTimeout 实现
+            OkHttpClient callClient = okHttpClient.newBuilder()
+                    .retryOnConnectionFailure(false)
+                    .readTimeout(options.idleTimeout())
+                    .callTimeout(Duration.ZERO)
+                    .build();
+            EventSource source = EventSources.createFactory(callClient).newEventSource(
                     transportRequest, new EventSourceListener() {
                         @Override
                         public void onOpen(EventSource eventSource, Response response) {
                             session.bind(eventSource);
-                            session.opened(new HttpSseOpen(response.code(),
-                                    HttpHeaders.fromOkHttp(response.headers())));
+                            session.opened(response.code(), HttpHeaders.fromOkHttp(response.headers()));
                         }
 
                         @Override
                         public void onEvent(EventSource eventSource, @Nullable String id,
                                             @Nullable String type, String data) {
                             session.bind(eventSource);
-                            session.event(new HttpSseEvent(id,
-                                    type == null ? HttpSseEvent.DEFAULT_TYPE : type, data));
+                            session.event(new SseEvent(id, type, data));
                         }
 
                         @Override
@@ -345,74 +355,17 @@ public final class HttpClient implements AutoCloseable {
                             }
                             HttpFailureKind kind = throwable == null
                                     ? HttpFailureKind.PROTOCOL : classify(throwable, false);
-                            session.fail(new HttpSseFailure(kind, throwable, status, headers, body));
+                            session.fail(new SseFailure(kind, throwable, status, headers, body));
                         }
                     });
             session.bind(source);
             return session;
         } catch (RuntimeException exception) {
-            HttpSseFailure failure = new HttpSseFailure(
-                    classify(exception, false), exception, null, null, null);
-            session.fail(failure);
-            throw new HttpException(failure.kind(), request.getMethod().getName(), requestUrl(request),
+            HttpFailureKind kind = classify(exception, false);
+            session.fail(new SseFailure(kind, exception, null, null, null));
+            throw new HttpException(kind, request.method().name(), requestUrl(request),
                     "could not start SSE session", exception);
         }
-    }
-
-    /**
-     * 使用简洁命名的通用 SSE 入口。
-     */
-    public SseSession openSse(HttpRequest request, SseListener listener) {
-        return openSse(request, SseOptions.builder().idleTimeout(sseIdleTimeout).build(), listener);
-    }
-
-    /**
-     * 使用底层 SSE 事件模型打开会话。
-     */
-    HttpSseSession openSse(HttpRequest request, HttpSseListener listener) {
-        return openSse(request, RequestOptions.defaults(), listener);
-    }
-
-    /**
-     * 启动 SSE，并将总调用超时关闭为空闲超时。
-     */
-    public SseSession openSse(HttpRequest request, SseOptions options, SseListener listener) {
-        ValidationUtils.requireNonNull(request, "request must not be null");
-        ValidationUtils.requireNonNull(options, "options must not be null");
-        ValidationUtils.requireNonNull(listener, "listener must not be null");
-        SseSession wrapper = new SseSession(listener);
-        HttpRequest effective = request;
-        // 显式指定 Accept，避免服务端按普通 HTTP 响应协商；调用方自己的请求头优先。
-        if (!effective.getHeaders().contains(HttpHeaderNames.ACCEPT)) {
-            effective = copyWithHeader(effective, HttpHeaderNames.ACCEPT, "text/event-stream");
-        }
-        if (options.lastEventId() != null) {
-            effective = copyWithHeader(effective, HttpHeaderNames.LAST_EVENT_ID,
-                    options.lastEventId());
-        }
-        RequestOptions callOptions = RequestOptions.builder()
-                .readTimeout(options.idleTimeout())
-                // SSE 可能长期没有业务事件，总调用超时会错误地截断有效会话。
-                .callTimeout(Duration.ZERO)
-                .build();
-        HttpSseSession delegate = openSse(effective, callOptions, new HttpSseListener() {
-            @Override
-            public void onOpen(HttpSseSession session, HttpSseOpen open) {
-                wrapper.opened(open.statusCode(), open.headers());
-            }
-
-            @Override
-            public void onEvent(HttpSseSession session, HttpSseEvent event) {
-                wrapper.event(SseEvent.from(event));
-            }
-
-            @Override
-            public void onTerminal(HttpSseSession session, HttpSseTerminal terminal) {
-                wrapper.terminal(SseTerminal.from(terminal));
-            }
-        });
-        wrapper.bind(delegate);
-        return wrapper;
     }
 
     /**
@@ -431,7 +384,7 @@ public final class HttpClient implements AutoCloseable {
         }
 
         // 绝不能调用 dispatcher.cancelAll()：借入的客户端可能被无关使用方共享。
-        for (HttpSseSession session : List.copyOf(activeSseSessions)) {
+        for (SseSession session : List.copyOf(activeSseSessions)) {
             session.cancel();
         }
         for (Call call : List.copyOf(activeCalls)) {
@@ -464,24 +417,12 @@ public final class HttpClient implements AutoCloseable {
         return clientFor(options).newCall(request.toOkHttpRequest(baseUrl, defaultHeaders));
     }
 
-    private static HttpRequest copyWithHeader(HttpRequest request, String name, String value) {
-        return request.withHeader(name, value);
-    }
-
     private OkHttpClient clientFor(RequestOptions options) {
-        return clientFor(options, false);
-    }
-
-    private OkHttpClient clientFor(RequestOptions options, boolean disableRetry) {
         if (options.isDefault()) {
-            return disableRetry ? okHttpClient.newBuilder()
-                    .retryOnConnectionFailure(false).build() : okHttpClient;
+            return okHttpClient;
         }
+        // 每次覆盖都基于原客户端派生，连接池、调度器和拦截器仍保持一致
         OkHttpClient.Builder builder = okHttpClient.newBuilder();
-        // 每次覆盖都基于原客户端派生，连接池、调度器和拦截器仍保持一致。
-        if (disableRetry) {
-            builder.retryOnConnectionFailure(false);
-        }
         if (options.connectTimeout() != null) {
             builder.connectTimeout(options.connectTimeout());
         }
@@ -514,14 +455,14 @@ public final class HttpClient implements AutoCloseable {
 
     private void ensureCallNotCancelled(Call call, HttpRequest request) {
         if (call.isCanceled() || closed.get()) {
-            throw new HttpException(HttpFailureKind.CANCELLED, request.getMethod().getName(),
+            throw new HttpException(HttpFailureKind.CANCELLED, request.method().name(),
                     requestUrl(request), "call was cancelled", null);
         }
     }
 
     private HttpException responseTooLarge(HttpRequest request, int maximum) {
         return new HttpException(HttpFailureKind.RESPONSE_TOO_LARGE,
-                request.getMethod().getName(), requestUrl(request),
+                request.method().name(), requestUrl(request),
                 "buffered response exceeds " + maximum + " bytes", null);
     }
 
@@ -542,7 +483,7 @@ public final class HttpClient implements AutoCloseable {
                 }
                 if (read > remaining) {
                     throw new HttpException(HttpFailureKind.RESPONSE_TOO_LARGE,
-                            request.getMethod().getName(), requestUrl(request),
+                            request.method().name(), requestUrl(request),
                             "buffered response exceeds " + maximum + " bytes", null);
                 }
                 output.write(buffer, 0, read);
@@ -553,24 +494,23 @@ public final class HttpClient implements AutoCloseable {
     private HttpCallMetadata metadata(HttpRequest request, Response response,
                                       Instant requestTime, long startedNanos) {
         Duration duration = Duration.ofNanos(Math.max(0L, System.nanoTime() - startedNanos));
-        return HttpCallMetadata.builder()
-                .requestId(IdUtils.nextUUIDString())
-                .url(requestUrl(request))
-                .method(request.getMethod().getName())
-                .requestTime(requestTime)
-                .responseTime(requestTime.plus(duration))
-                .duration(duration)
-                .requestHeaders(request.effectiveHeaders(defaultHeaders))
-                .responseHeaders(HttpHeaders.fromOkHttp(response.headers()))
-                .protocol(response.protocol().toString())
-                .statusCode(response.code())
-                .statusMessage(response.message())
-                .build();
+        return new HttpCallMetadata(
+                IdUtils.nextUUIDString(),
+                request.method().name(),
+                requestUrl(request),
+                requestTime,
+                requestTime.plus(duration),
+                duration,
+                request.effectiveHeaders(defaultHeaders),
+                HttpHeaders.fromOkHttp(response.headers()),
+                response.protocol().toString(),
+                response.code(),
+                response.message());
     }
 
     private HttpException transportFailure(HttpRequest request, Throwable throwable,
                                            boolean cancelled) {
-        return new HttpException(classify(throwable, cancelled), request.getMethod().getName(),
+        return new HttpException(classify(throwable, cancelled), request.method().name(),
                 requestUrl(request), "transport failure", throwable);
     }
 
@@ -925,11 +865,11 @@ public final class HttpClient implements AutoCloseable {
                     .followRedirects(followRedirects)
                     .followSslRedirects(followSslRedirects);
             if (proxy != null) {
-                if (proxy.getProxySelector() != null) {
-                    builder.proxySelector(proxy.getProxySelector());
+                if (proxy.proxySelector() != null) {
+                    builder.proxySelector(proxy.proxySelector());
                 }
-                if (proxy.getAuthenticator() != null) {
-                    builder.proxyAuthenticator(proxy.getAuthenticator());
+                if (proxy.authenticator() != null) {
+                    builder.proxyAuthenticator(proxy.authenticator());
                 }
             }
             for (Consumer<OkHttpClient.Builder> customizer : okHttpCustomizers) {

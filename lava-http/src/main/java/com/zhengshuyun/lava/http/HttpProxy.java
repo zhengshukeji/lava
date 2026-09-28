@@ -46,7 +46,7 @@ public final class HttpProxy {
      *
      * @return 代理选择器, 未配置时返回 null
      */
-    public @Nullable ProxySelector getProxySelector() {
+    public @Nullable ProxySelector proxySelector() {
         return proxySelector;
     }
 
@@ -58,7 +58,7 @@ public final class HttpProxy {
      *
      * @return 代理认证器, 未配置时返回 null
      */
-    @Nullable Authenticator getAuthenticator() {
+    @Nullable Authenticator authenticator() {
         return authenticator;
     }
 

@@ -5,6 +5,7 @@
 
 package com.zhengshuyun.lava.pay.alipay.exception;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
@@ -133,6 +134,7 @@ public final class AlipayApiException extends AlipayException {
      * @param issue       问题类型；没有时为 {@code null}
      * @param description 问题描述；没有时为 {@code null}
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Detail(
             @Nullable String field,
             @Nullable String value,

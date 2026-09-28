@@ -41,6 +41,17 @@ public final class WechatPaySecurityException extends WechatPayException {
     }
 
     /**
+     * 创建保留底层异常的安全校验异常。
+     *
+     * @param failure 精确失败类别
+     * @param cause   底层异常
+     */
+    public WechatPaySecurityException(WechatPaySecurityFailure failure, Throwable cause) {
+        super("微信支付安全校验失败: " + ValidationUtils.requireNonNull(failure, "failure"), cause);
+        this.failure = failure;
+    }
+
+    /**
      * 返回精确失败类别。
      *
      * @return 安全失败类别

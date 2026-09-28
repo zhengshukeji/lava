@@ -6,7 +6,6 @@
 package com.zhengshuyun.lava.pay.alipay.pagepay;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
-import com.zhengshuyun.lava.pay.alipay.internal.AlipayMoneyUtils;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayValidationUtils;
 import org.jspecify.annotations.Nullable;
 
@@ -25,26 +24,13 @@ import java.util.Set;
  * 金额单位为分，构建完成后对象不可变。</p>
  */
 public final class PagePayRequest {
-    /** 页面支付允许使用的二维码展示模式集合。 */
-    private static final Set<String> QR_MODES = Set.of(
-            PagePayQrMode.SIMPLE_FRONT,
-            PagePayQrMode.FRONT,
-            PagePayQrMode.REDIRECT,
-            PagePayQrMode.MINI_FRONT,
-            PagePayQrMode.CUSTOM_WIDTH
-    );
-    /** 相对支付有效期下限，固定为 1 分钟。 */
-    private static final Duration MIN_TIMEOUT = Duration.ofMinutes(1);
-    /** 相对支付有效期上限，固定为 15 天。 */
-    private static final Duration MAX_TIMEOUT = Duration.ofDays(15);
-
     /** 商户订单号，在当前商户范围内保持唯一。 */
     private final String outTradeNo;
     /** 订单总金额，单位为分，必须大于零。 */
     private final long totalAmount;
-    /** 订单标题，1 至 256 个字符且不能包含 {@code /、=、&}。 */
+    /** 订单标题。 */
     private final String subject;
-    /** 可选订单描述，最长 400 个字符。 */
+    /** 可选订单描述。 */
     private final @Nullable String body;
     /** 可选绝对支付截止时间，按 GMT+8 解释并与相对有效期二选一。 */
     private final @Nullable LocalDateTime timeExpire;
@@ -76,33 +62,21 @@ public final class PagePayRequest {
     private PagePayRequest(Builder builder) {
         outTradeNo = AlipayValidationUtils.requireOutTradeNo(builder.outTradeNo);
         totalAmount = AlipayValidationUtils.requirePositiveAmount(
-                ValidationUtils.requireNonNull(builder.totalAmount, "totalAmount is required"),
-                AlipayMoneyUtils.MAX_PAYMENT_CENTS, "totalAmount");
-        subject = AlipayValidationUtils.requireText(
-                builder.subject,
-                "subject",
-                1,
-                256
-        );
-        ValidationUtils.requireTrue(subject.codePoints().noneMatch(
-                        value -> value == '/' || value == '=' || value == '&'),
-                "subject must not contain '/', '=', or '&'");
-        body = AlipayValidationUtils.requireOptionalText(builder.body, "body", 400);
+                ValidationUtils.requireNonNull(builder.totalAmount, "totalAmount is required"), "totalAmount");
+        subject = ValidationUtils.requireNotBlank(builder.subject, "subject must not be blank");
+        body = builder.body;
         ValidationUtils.requireTrue(builder.timeExpire == null || builder.timeout == null,
                 "timeExpire and timeout are mutually exclusive");
         timeExpire = builder.timeExpire;
         timeout = builder.timeout;
         if (timeout != null) {
-            ValidationUtils.requireTrue(!timeout.isNegative() && !timeout.isZero()
-                            && timeout.compareTo(MIN_TIMEOUT) >= 0
-                            && timeout.compareTo(MAX_TIMEOUT) <= 0
-                            && timeout.toSeconds() % 60 == 0,
-                    "timeout must contain whole minutes between 1 minute and 15 days");
+            // 协议以 "90m" 形式传输相对有效期，只能表达整分钟
+            ValidationUtils.requireTrue(timeout.isPositive() && timeout.toSeconds() % 60 == 0,
+                    "timeout must be a positive number of whole minutes");
         }
 
         qrPayMode = builder.qrPayMode == null ? null
-                : AlipayValidationUtils.requireOneOf(
-                builder.qrPayMode, "qrPayMode", QR_MODES);
+                : ValidationUtils.requireNotBlank(builder.qrPayMode, "qrPayMode must not be blank");
         qrcodeWidth = builder.qrcodeWidth;
         if (PagePayQrMode.CUSTOM_WIDTH.equals(qrPayMode)) {
             ValidationUtils.requireNonNull(qrcodeWidth,
@@ -112,8 +86,7 @@ public final class PagePayRequest {
                     "qrcodeWidth is only valid when qrPayMode is CUSTOM_WIDTH");
         }
         if (qrcodeWidth != null) {
-            ValidationUtils.requireTrue(qrcodeWidth > 0 && qrcodeWidth <= 9999,
-                    "qrcodeWidth must be between 1 and 9999");
+            ValidationUtils.requireTrue(qrcodeWidth > 0, "qrcodeWidth must be positive");
         }
 
         goodsDetail = List.copyOf(builder.goodsDetail);
@@ -123,11 +96,9 @@ public final class PagePayRequest {
                 new LinkedHashSet<>(builder.disablePayChannels));
         ValidationUtils.requireTrue(enablePayChannels.isEmpty() || disablePayChannels.isEmpty(),
                 "enablePayChannels and disablePayChannels are mutually exclusive");
-        storeId = AlipayValidationUtils.requireOptionalText(builder.storeId, "storeId", 32);
-        merchantOrderNo = AlipayValidationUtils.requireOptionalText(
-                builder.merchantOrderNo, "merchantOrderNo", 32);
-        passbackParams = AlipayValidationUtils.requireOptionalText(
-                builder.passbackParams, "passbackParams", 512);
+        storeId = builder.storeId;
+        merchantOrderNo = builder.merchantOrderNo;
+        passbackParams = builder.passbackParams;
     }
 
     /**
@@ -470,15 +441,10 @@ public final class PagePayRequest {
          *
          * @param value 支付宝支付渠道标识，长度为 1 至 64 个字符
          * @return 通过非空白、长度和分隔符校验的原标识
-         * @throws IllegalArgumentException 标识为空白、超过长度限制或包含逗号
+         * @throws IllegalArgumentException 标识为空白或包含逗号
          */
         private static String requireChannel(String value) {
-            value = AlipayValidationUtils.requireText(
-                    value,
-                    "payChannel",
-                    1,
-                    64
-            );
+            value = ValidationUtils.requireNotBlank(value, "payChannel must not be blank");
             ValidationUtils.requireTrue(value.indexOf(',') < 0,
                     "payChannel must not contain commas");
             return value;

@@ -34,22 +34,27 @@ import com.zhengshuyun.lava.json.JsonException;
 import org.jspecify.annotations.Nullable;
 
 import java.net.URI;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 简道云开放 API 的统一鉴权、发送和错误解析传输层。
  *
  * <p>该类型仅由根客户端及各功能入口共享使用，集中保证每个请求携带 Bearer API Key、
  * 成功响应按业务模型解析、失败响应转换为结构化领域异常，并将底层 HTTP 失败转换为简道云
- * 领域异常。它不拥有 HTTP 客户端的生命周期。</p>
+ * 领域异常。传输层同时持有根客户端的关闭状态；关闭时只关闭自己创建的 HTTP 客户端。</p>
  */
-public final class JiandaoyunTransport {
+public final class JiandaoyunTransport implements AutoCloseable {
     /** 客户端在 User-Agent 中声明的产品名。 */
     private static final String USER_AGENT = "lava-jiandaoyun";
 
-    /** 简道云开放 API 的 Bearer API Key；关闭客户端时清除引用。 */
-    private String apiKey;
-    /** 仅用于发送请求的 HTTP 客户端；关闭责任由共享运行时或调用方承担。 */
+    /** 简道云开放 API 的 Bearer API Key。 */
+    private final String apiKey;
+    /** 发送请求的 HTTP 客户端。 */
     private final HttpClient httpClient;
+    /** 是否由本传输层负责关闭 HTTP 客户端；调用方借入的客户端为 false。 */
+    private final boolean ownsHttpClient;
+    /** 根客户端关闭状态，保证关闭幂等并拒绝后续调用。 */
+    private final AtomicBoolean closed = new AtomicBoolean();
     /** 已校验的简道云 API 根地址，用于构造业务接口端点。 */
     private final URI apiBaseUrl;
     /** 业务请求编码及响应解码使用的 JSON 编解码器。 */
@@ -60,12 +65,14 @@ public final class JiandaoyunTransport {
      *
      * @param apiKey 简道云 API Key
      * @param httpClient HTTP 客户端
+     * @param ownsHttpClient 是否由本传输层负责关闭 HTTP 客户端
      * @param apiBaseUrl API 根地址
      * @param jsonCodec JSON 编解码器
      */
     public JiandaoyunTransport(
             String apiKey,
             HttpClient httpClient,
+            boolean ownsHttpClient,
             URI apiBaseUrl,
             JsonCodec jsonCodec
     ) {
@@ -74,6 +81,7 @@ public final class JiandaoyunTransport {
                 httpClient,
                 "httpClient must not be null"
         );
+        this.ownsHttpClient = ownsHttpClient;
         this.apiBaseUrl = JiandaoyunValidationUtils.requireApiBaseUrl(apiBaseUrl);
         this.jsonCodec = ValidationUtils.requireNonNull(
                 jsonCodec,
@@ -105,10 +113,11 @@ public final class JiandaoyunTransport {
      * @return 响应模型
      */
     public <T> T post(URI uri, Object requestBody, Class<T> responseType) {
+        ensureOpen();
         // 1. 编码一次请求正文，后续发送使用同一份数据，避免二次序列化。
         byte[] body = encode(requestBody);
         HttpResponse response = execute(uri, body);
-        byte[] responseBody = response.getBodyAsBytes();
+        byte[] responseBody = response.bodyBytes();
 
         // 2. 成功响应解析为业务模型；空正文或结构不符属于协议异常。
         if (response.isSuccessful()) {
@@ -118,7 +127,7 @@ public final class JiandaoyunTransport {
             try {
                 return jsonCodec.read(responseBody, responseType);
             } catch (JsonException | IllegalArgumentException exception) {
-                throw new JiandaoyunProtocolException("简道云成功响应不是预期的 JSON 结构");
+                throw new JiandaoyunProtocolException("简道云成功响应不是预期的 JSON 结构", exception);
             }
         }
 
@@ -143,12 +152,7 @@ public final class JiandaoyunTransport {
         try {
             return httpClient.send(request);
         } catch (HttpException exception) {
-            throw new JiandaoyunTransportException(
-                    exception.getKind(),
-                    exception.getMethod(),
-                    exception.getUrl(),
-                    exception.getTransportCauseType()
-            );
+            throw new JiandaoyunTransportException(exception);
         }
     }
 
@@ -163,7 +167,7 @@ public final class JiandaoyunTransport {
         try {
             return jsonCodec.writeBytes(requestBody);
         } catch (JsonException exception) {
-            throw new JiandaoyunProtocolException("简道云请求正文编码失败");
+            throw new JiandaoyunProtocolException("简道云请求正文编码失败", exception);
         }
     }
 
@@ -179,15 +183,29 @@ public final class JiandaoyunTransport {
             ApiErrorPayload payload = jsonCodec.read(responseBody, ApiErrorPayload.class);
             return new JiandaoyunApiException(statusCode, payload.code(), payload.msg());
         } catch (JsonException | IllegalArgumentException exception) {
-            throw new JiandaoyunProtocolException("简道云错误响应缺少 code/msg 结构");
+            throw new JiandaoyunProtocolException("简道云错误响应缺少 code/msg 结构", exception);
         }
     }
 
     /**
-     * 清除 API Key 引用。运行时关闭时调用，尽力降低密钥在内存中的滞留时间。
+     * 确保根客户端仍处于可用状态。
+     *
+     * @throws IllegalStateException 根客户端已经关闭
      */
-    public void clearSecret() {
-        apiKey = null;
+    public void ensureOpen() {
+        if (closed.get()) {
+            throw new IllegalStateException("JiandaoyunClient is closed");
+        }
+    }
+
+    /**
+     * 关闭传输层；仅关闭本传输层拥有的 HTTP 客户端，可重复调用。
+     */
+    @Override
+    public void close() {
+        if (closed.compareAndSet(false, true) && ownsHttpClient) {
+            httpClient.close();
+        }
     }
 
     /**

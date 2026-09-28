@@ -17,4 +17,14 @@ public final class AlipayProtocolException extends AlipayException {
     public AlipayProtocolException(String message) {
         super(message);
     }
+
+    /**
+     * 创建保留底层异常的协议异常。
+     *
+     * @param message 诊断消息
+     * @param cause   底层异常
+     */
+    public AlipayProtocolException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

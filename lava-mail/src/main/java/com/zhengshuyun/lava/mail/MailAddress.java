@@ -34,7 +34,7 @@ public record MailAddress(String address, @Nullable String displayName) {
      * @param displayName 可选显示名
      */
     public MailAddress {
-        address = PasswordCredential.requireNonBlank(address, "address");
+        address = MailValidationUtils.requireNonBlank(address, "address");
         if (containsControl(address)) {
             throw new IllegalArgumentException("address must not contain control characters");
         }

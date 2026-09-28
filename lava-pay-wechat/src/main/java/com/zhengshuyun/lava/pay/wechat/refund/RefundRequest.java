@@ -23,9 +23,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.net.URI;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * 普通支付退款申请。微信支付订单号与商户订单号必须且只能配置一个，
@@ -82,8 +80,6 @@ public final class RefundRequest {
         long total = WechatPayValidationUtils.requirePositive(
                 ValidationUtils.requireNonNull(builder.total, "total amount is required"),
                 "total");
-        ValidationUtils.requireTrue(refund <= total,
-                "refund amount must not exceed total amount");
 
         List<AmountFrom> from = builder.amountFrom.isEmpty()
                 ? null : List.copyOf(builder.amountFrom);
@@ -95,16 +91,6 @@ public final class RefundRequest {
         );
         goodsDetail = builder.goodsDetail.isEmpty()
                 ? null : List.copyOf(builder.goodsDetail);
-        if (goodsDetail != null) {
-            long goodsRefund = 0;
-            for (GoodsDetail item : goodsDetail) {
-                ValidationUtils.requireTrue(
-                        item.refundAmount() <= refund - goodsRefund,
-                        "goodsDetail refund amounts must not exceed refund amount"
-                );
-                goodsRefund += item.refundAmount();
-            }
-        }
     }
 
     /**
@@ -241,8 +227,7 @@ public final class RefundRequest {
          * @return 当前构建器
          */
         public Builder transactionId(String value) {
-            transactionId = WechatPayValidationUtils.requireId(value,
-                    "transactionId", 32);
+            transactionId = ValidationUtils.requireNotBlank(value, "transactionId must not be blank");
             return this;
         }
 
@@ -275,8 +260,7 @@ public final class RefundRequest {
          * @return 当前构建器
          */
         public Builder reason(String value) {
-            reason = WechatPayValidationUtils.requireOptionalBytes(value,
-                    "reason", 80);
+            reason = value;
             return this;
         }
 
@@ -287,7 +271,7 @@ public final class RefundRequest {
          * @return 当前构建器
          */
         public Builder notifyUrl(URI value) {
-            notifyUrl = WechatPayValidationUtils.requireNotifyUrl(value, 256);
+            notifyUrl = WechatPayValidationUtils.requireNotifyUrl(value);
             return this;
         }
 
@@ -298,7 +282,7 @@ public final class RefundRequest {
          * @return 当前构建器
          */
         public Builder notifyUrl(String value) {
-            notifyUrl = WechatPayValidationUtils.requireNotifyUrl(value, 256);
+            notifyUrl = WechatPayValidationUtils.requireNotifyUrl(value);
             return this;
         }
 
@@ -310,10 +294,7 @@ public final class RefundRequest {
          * @return 当前构建器
          */
         public Builder fundsAccount(String value) {
-            ValidationUtils.requireTrue(RefundFundsAccount.AVAILABLE.equals(value)
-                            || RefundFundsAccount.UNSETTLED.equals(value),
-                    "fundsAccount must be AVAILABLE or UNSETTLED");
-            fundsAccount = value;
+            fundsAccount = ValidationUtils.requireNotBlank(value, "fundsAccount must not be blank");
             return this;
         }
 
@@ -380,33 +361,11 @@ public final class RefundRequest {
             @JsonProperty("currency") String currency
     ) {
         /**
-         * 校验退款金额、出资账户和币种，并防御性复制出资明细。
-         *
-         * @throws IllegalArgumentException 金额非正数、退款超额、币种不是人民币，
-         *                                  或出资账户重复、金额合计不等于退款额时抛出
+         * 复制出资明细以保持记录不可变。
          */
         public Amount {
-            WechatPayValidationUtils.requirePositive(refund, "amount.refund");
-            WechatPayValidationUtils.requirePositive(total, "amount.total");
-            ValidationUtils.requireTrue(refund <= total,
-                    "refund amount must not exceed total amount");
-            ValidationUtils.requireTrue("CNY".equals(currency),
-                    "amount.currency must be CNY");
             if (from != null) {
-                ValidationUtils.requireNotEmpty(from,
-                        "amount.from must contain at least one item");
                 from = List.copyOf(from);
-                Set<String> accounts = new HashSet<>();
-                long sum = 0;
-                for (AmountFrom item : from) {
-                    ValidationUtils.requireTrue(accounts.add(item.account()),
-                            "amountFrom account must not be repeated");
-                    ValidationUtils.requireTrue(item.amount() <= refund - sum,
-                            "amountFrom amounts must not exceed refund amount");
-                    sum += item.amount();
-                }
-                ValidationUtils.requireTrue(sum == refund,
-                        "amountFrom amounts must equal refund amount");
             }
         }
     }
@@ -414,21 +373,19 @@ public final class RefundRequest {
     /**
      * 退款出资账户及金额。
      *
-     * @param account 出资账户，仅支持 {@code AVAILABLE} 或 {@code UNAVAILABLE}
+     * @param account 出资账户，如 {@code AVAILABLE}、{@code UNAVAILABLE}
      * @param amount 出资金额，单位为分
      */
     public record AmountFrom(
             @JsonProperty("account") String account,
             @JsonProperty("amount") long amount) {
         /**
-         * 校验退款出资账户与正金额。
+         * 校验出资账户非空白、金额为正数。
          *
-         * @throws IllegalArgumentException 账户不受支持或金额不大于 0 时抛出
+         * @throws IllegalArgumentException 账户为空白或金额不大于 0
          */
         public AmountFrom {
-            ValidationUtils.requireTrue(RefundFundsAccount.AVAILABLE.equals(account)
-                            || RefundFundsAccount.UNAVAILABLE.equals(account),
-                    "amountFrom.account must be AVAILABLE or UNAVAILABLE");
+            ValidationUtils.requireNotBlank(account, "amountFrom.account must not be blank");
             WechatPayValidationUtils.requirePositive(amount, "amountFrom.amount");
         }
     }
@@ -453,29 +410,12 @@ public final class RefundRequest {
     ) {
 
         /**
-         * 校验指定商品的编码、名称、单价、退款额与退货数量。
+         * 校验商品编码非空白，单价、退款额与退货数量为正数。
          *
-         * @throws IllegalArgumentException 编码或名称越界，或数值不大于 0 时抛出
+         * @throws IllegalArgumentException 编码为空白，或数值不大于 0
          */
         public GoodsDetail {
-            merchantGoodsId = WechatPayValidationUtils.requireMerchantGoodsId(
-                    merchantGoodsId);
-            if (wechatpayGoodsId != null) {
-                WechatPayValidationUtils.requireText(
-                        wechatpayGoodsId,
-                        "wechatpayGoodsId",
-                        1,
-                        32
-                );
-            }
-            if (goodsName != null) {
-                WechatPayValidationUtils.requireText(
-                        goodsName,
-                        "goodsName",
-                        1,
-                        256
-                );
-            }
+            WechatPayValidationUtils.requireMerchantGoodsId(merchantGoodsId);
             WechatPayValidationUtils.requirePositive(unitPrice, "unitPrice");
             WechatPayValidationUtils.requirePositive(refundAmount, "refundAmount");
             WechatPayValidationUtils.requirePositive(refundQuantity, "refundQuantity");

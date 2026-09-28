@@ -18,7 +18,6 @@ package com.zhengshuyun.lava.jiandaoyun.application;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
-import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunRuntime;
 import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunTransport;
 import org.jspecify.annotations.Nullable;
 
@@ -32,15 +31,15 @@ public final class ApplicationClient {
     private static final String APP_LIST_PATH = "/api/v5/app/list";
 
     /** 根客户端共享的鉴权传输层与关闭状态。 */
-    private final JiandaoyunRuntime runtime;
+    private final JiandaoyunTransport transport;
 
     /**
      * 由根客户端创建应用查询入口。
      *
-     * @param runtime 共享运行时
+     * @param transport 共享协议传输层
      */
-    public ApplicationClient(JiandaoyunRuntime runtime) {
-        this.runtime = ValidationUtils.requireNonNull(runtime, "runtime");
+    public ApplicationClient(JiandaoyunTransport transport) {
+        this.transport = ValidationUtils.requireNonNull(transport, "transport");
     }
 
     /**
@@ -50,7 +49,7 @@ public final class ApplicationClient {
      * @return 应用信息列表
      */
     public List<Application> list(ListApplicationsRequest request) {
-        JiandaoyunTransport transport = runtime.transport();
+        transport.ensureOpen();
         request = ValidationUtils.requireNonNull(request, "request must not be null");
         ApplicationListPayload payload = transport.post(
                 transport.endpoint(APP_LIST_PATH),

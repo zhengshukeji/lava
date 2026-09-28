@@ -45,12 +45,7 @@ public record NativePrepayDetail(
             WechatPayValidationUtils.requirePositive(costPrice, "costPrice");
         }
         if (invoiceId != null) {
-            WechatPayValidationUtils.requireText(
-                    invoiceId,
-                    "invoiceId",
-                    1,
-                    32
-            );
+            ValidationUtils.requireNotBlank(invoiceId, "invoiceId must not be blank");
         }
 
         // 2. 单品列表至少包含一项，并复制为不可变列表以隔离调用方后续修改。
@@ -108,12 +103,7 @@ public record NativePrepayDetail(
          * @return 当前构建器
          */
         public Builder invoiceId(String value) {
-            invoiceId = WechatPayValidationUtils.requireText(
-                    value,
-                    "invoiceId",
-                    1,
-                    32
-            );
+            invoiceId = ValidationUtils.requireNotBlank(value, "invoiceId must not be blank");
             return this;
         }
 
@@ -164,20 +154,10 @@ public record NativePrepayDetail(
             merchantGoodsId = WechatPayValidationUtils.requireMerchantGoodsId(
                     merchantGoodsId);
             if (wechatpayGoodsId != null) {
-                WechatPayValidationUtils.requireText(
-                        wechatpayGoodsId,
-                        "wechatpayGoodsId",
-                        1,
-                        32
-                );
+                ValidationUtils.requireNotBlank(wechatpayGoodsId, "wechatpayGoodsId must not be blank");
             }
             if (goodsName != null) {
-                WechatPayValidationUtils.requireText(
-                        goodsName,
-                        "goodsName",
-                        1,
-                        256
-                );
+                ValidationUtils.requireNotBlank(goodsName, "goodsName must not be blank");
             }
             WechatPayValidationUtils.requirePositive(quantity, "quantity");
             WechatPayValidationUtils.requirePositive(unitPrice, "unitPrice");

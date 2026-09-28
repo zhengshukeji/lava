@@ -47,6 +47,21 @@ final class OAuth2AccessTokenProvider implements AutoCloseable {
         }
     }
 
+    /**
+     * 按凭证类型创建令牌提供器：OAuth2 凭证返回新实例，口令凭证不需要令牌返回 null。
+     *
+     * @param credential 邮箱凭证
+     * @param options    客户端选项
+     * @return 令牌提供器；口令凭证时为 null
+     */
+    static @Nullable OAuth2AccessTokenProvider forCredential(
+            MailCredential credential, MailClientOptions options) {
+        return credential instanceof OAuth2RefreshTokenCredential oauth
+                ? new OAuth2AccessTokenProvider(oauth, OAuth2TokenClient.createDefault(),
+                options.clock(), options.tokenRefreshAhead())
+                : null;
+    }
+
     synchronized String accessToken() {
         if (closed.get()) {
             throw new IllegalStateException("OAuth2 token provider is closed");

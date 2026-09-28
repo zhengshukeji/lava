@@ -59,9 +59,9 @@ class HttpModernApiTest {
                 .build());
 
         assertTrue(response.isSuccessful());
-        assertTrue(response.getBodyAsString().contains("q=%E4%B8%AD%E6%96%87%20value"));
-        assertTrue(response.getBodyAsString().contains("|request|"));
-        assertTrue(response.getBodyAsString().contains("answer"));
+        assertTrue(response.bodyString().contains("q=%E4%B8%AD%E6%96%87%20value"));
+        assertTrue(response.bodyString().contains("|request|"));
+        assertTrue(response.bodyString().contains("answer"));
     }
 
     @Test
@@ -83,8 +83,8 @@ class HttpModernApiTest {
         HttpResponse response = client.send(HttpRequest.post("echo")
                 .body(HttpBodyUtils.form(Map.of("a", "1", "b", "two")))
                 .build());
-        assertTrue(response.getBodyAsString().contains("a=1"));
-        assertTrue(response.getBodyAsString().contains("b=two"));
+        assertTrue(response.bodyString().contains("a=1"));
+        assertTrue(response.bodyString().contains("b=two"));
     }
 
     @Test

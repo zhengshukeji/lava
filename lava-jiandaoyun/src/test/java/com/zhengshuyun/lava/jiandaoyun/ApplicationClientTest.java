@@ -104,8 +104,6 @@ class ApplicationClientTest {
         assertThrows(IllegalArgumentException.class,
                 () -> ListApplicationsRequest.builder().limit(0).build());
         assertThrows(IllegalArgumentException.class,
-                () -> ListApplicationsRequest.builder().limit(101).build());
-        assertThrows(IllegalArgumentException.class,
                 () -> ListApplicationsRequest.builder().skip(-1).build());
     }
 }

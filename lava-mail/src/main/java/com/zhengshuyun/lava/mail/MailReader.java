@@ -16,6 +16,7 @@
 package com.zhengshuyun.lava.mail;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
+import org.jspecify.annotations.Nullable;
 
 import java.io.OutputStream;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -28,7 +29,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class MailReader implements AutoCloseable {
     private final ImapServerConfig config;
     private final MailCredential credential;
-    private final MailReaderEngine engine;
+    private final MailLimits limits;
+    private final ImapMailReader reader = new ImapMailReader();
+    /**
+     * OAuth2 凭证的访问令牌缓存；口令凭证时为 null。
+     */
+    private final @Nullable OAuth2AccessTokenProvider tokenProvider;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     /**
@@ -52,7 +58,9 @@ public final class MailReader implements AutoCloseable {
             ImapServerConfig config, MailCredential credential, MailClientOptions options) {
         this.config = ValidationUtils.requireNonNull(config, "config");
         this.credential = ValidationUtils.requireNonNull(credential, "credential");
-        this.engine = MailReaderEngine.create(credential, ValidationUtils.requireNonNull(options, "options"));
+        ValidationUtils.requireNonNull(options, "options");
+        this.limits = options.limits();
+        this.tokenProvider = OAuth2AccessTokenProvider.forCredential(credential, options);
     }
 
     /**
@@ -64,7 +72,8 @@ public final class MailReader implements AutoCloseable {
      */
     public MailPage<MailMessageSummary> listMessages(MailQuery query) {
         ensureOpen();
-        return engine.list(config, credential, ValidationUtils.requireNonNull(query, "query"));
+        return reader.list(config, credential, accessToken(),
+                ValidationUtils.requireNonNull(query, "query"), limits);
     }
 
     /**
@@ -76,7 +85,8 @@ public final class MailReader implements AutoCloseable {
      */
     public MailMessage readMessage(MailMessageId id) {
         ensureOpen();
-        return engine.read(config, credential, ValidationUtils.requireNonNull(id, "id"));
+        return reader.read(config, credential, accessToken(),
+                ValidationUtils.requireNonNull(id, "id"), limits);
     }
 
     /**
@@ -95,9 +105,9 @@ public final class MailReader implements AutoCloseable {
         if (attachmentIndex < 0) {
             throw new IllegalArgumentException("attachmentIndex must not be negative");
         }
-        return engine.download(
-                config, credential, ValidationUtils.requireNonNull(id, "id"), attachmentIndex,
-                ValidationUtils.requireNonNull(destination, "destination"));
+        return reader.download(
+                config, credential, accessToken(), ValidationUtils.requireNonNull(id, "id"),
+                attachmentIndex, ValidationUtils.requireNonNull(destination, "destination"), limits);
     }
 
     /**
@@ -105,9 +115,13 @@ public final class MailReader implements AutoCloseable {
      */
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
-            engine.close();
+        if (closed.compareAndSet(false, true) && tokenProvider != null) {
+            tokenProvider.close();
         }
+    }
+
+    private @Nullable String accessToken() {
+        return tokenProvider == null ? null : tokenProvider.accessToken();
     }
 
     private void ensureOpen() {

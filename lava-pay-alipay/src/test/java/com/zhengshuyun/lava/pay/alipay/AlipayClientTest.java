@@ -563,14 +563,6 @@ class AlipayClientTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> PagePayRequest.builder()
-                               .outTradeNo("bad-order")
-                               .totalAmount(1)
-                               .subject("test")
-                               .build()
-        );
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> PagePayRequest.builder()
                                .outTradeNo("ORDER_001")
                                .totalAmount(1)
                                .subject("test")
@@ -591,7 +583,6 @@ class AlipayClientTest {
                                .refundAmount(1)
                                .build()
         );
-        assertThrows(IllegalArgumentException.class, () -> client.bills().queryDaily(BillType.TRADE, LocalDate.of(2026, 8, 29)));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> AlipayClient.builder().baseUrl("https://example.com")
@@ -618,19 +609,15 @@ class AlipayClientTest {
                 .appId(APP_ID)
                 .appPrivateKey(appKeys.getPrivate())
                 .alipayPublicKey(alipayKeys.getPublic());
-        assertThrows(IllegalArgumentException.class, incompleteBuilder::build);
-        incompleteBuilder.sellerId(SELLER_ID);
-        IllegalArgumentException clearedPrivateKey = assertThrows(IllegalArgumentException.class, incompleteBuilder::build);
-        assertTrue(clearedPrivateKey.getMessage().contains("appPrivateKey"));
+        IllegalArgumentException missing = assertThrows(IllegalArgumentException.class, incompleteBuilder::build);
+        assertTrue(missing.getMessage().contains("sellerId"));
 
-        AlipayClient.Builder oneShotBuilder = AlipayClient.builder()
-                .appId(APP_ID)
-                .sellerId(SELLER_ID)
-                .appPrivateKey(appKeys.getPrivate())
-                .alipayPublicKey(alipayKeys.getPublic());
-        try (AlipayClient ignored = oneShotBuilder.build()) {
-            assertThrows(IllegalStateException.class, oneShotBuilder::build);
-            assertThrows(IllegalStateException.class, () -> oneShotBuilder.appId(APP_ID));
+        // 构建器可复用，每次构建得到独立的客户端
+        incompleteBuilder.sellerId(SELLER_ID);
+        try (AlipayClient first = incompleteBuilder.build(); AlipayClient second = incompleteBuilder.build()) {
+            first.close();
+            assertThrows(IllegalStateException.class, first::transactions);
+            second.transactions();
         }
     }
 

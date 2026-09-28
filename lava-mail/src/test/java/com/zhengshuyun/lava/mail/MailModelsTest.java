@@ -178,16 +178,13 @@ class MailModelsTest {
     }
 
     @Test
-    void exceptionRetainsOnlyRedactedCauseType() {
-        String secret = "refresh-token-must-not-leak";
+    void exceptionKeepsKindAndCause() {
+        IllegalStateException cause = new IllegalStateException("boom");
         MailException failure = new MailException(
-                MailFailureKind.AUTHENTICATION, "authentication failed",
-                new IllegalStateException(secret));
+                MailFailureKind.AUTHENTICATION, "authentication failed", cause);
 
         assertEquals(MailFailureKind.AUTHENTICATION, failure.kind());
-        assertEquals(IllegalStateException.class.getName(), failure.causeType());
-        assertNull(failure.getCause());
-        assertFalse(failure.toString().contains(secret));
-        assertFalse(String.valueOf(failure.causeType()).contains(secret));
+        assertSame(cause, failure.getCause());
+        assertEquals("authentication failed", failure.getMessage());
     }
 }

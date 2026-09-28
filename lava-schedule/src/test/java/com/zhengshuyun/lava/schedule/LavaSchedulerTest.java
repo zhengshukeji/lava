@@ -98,7 +98,7 @@ class LavaSchedulerTest {
                     () -> {
                     },
                     Trigger.at(now.minusSeconds(1)),
-                    new ScheduleOptions(ConcurrencyPolicy.SERIAL_SKIP, MisfirePolicy.SKIP)));
+                    ConcurrencyPolicy.SKIP_IF_RUNNING));
 
             assertNotNull(scheduled.get(2, TimeUnit.SECONDS));
             assertTrue(listenerStarted.await(2, TimeUnit.SECONDS));
@@ -132,9 +132,31 @@ class LavaSchedulerTest {
     }
 
     @Test
-    void serialQueueAndParallelPoliciesHaveBoundedPendingQueues() throws Exception {
-        verifyBoundedPolicy(ConcurrencyPolicy.serialQueue(1), 1, 2);
-        verifyBoundedPolicy(ConcurrencyPolicy.parallel(2, 1), 2, 3);
+    void parallelPolicyOverlapsWithinExecutorBounds() throws Exception {
+        CountDownLatch started = new CountDownLatch(2);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger executions = new AtomicInteger();
+        List<TaskEvent> events = new CopyOnWriteArrayList<>();
+        try (LavaScheduler scheduler = LavaScheduler.builder()
+                .executionBounds(2, 1)
+                .listener(events::add)
+                .build()) {
+            ScheduledTask task = scheduler.schedule("parallel", () -> {
+                executions.incrementAndGet();
+                started.countDown();
+                awaitUnchecked(release);
+            }, Trigger.after(Duration.ofHours(1)), ConcurrencyPolicy.PARALLEL);
+
+            task.triggerNow();
+            task.triggerNow();
+            assertTrue(started.await(2, TimeUnit.SECONDS), "PARALLEL 允许同一任务重叠执行");
+            // 两个执行占满并发、一个进入执行器队列，第四个被执行器拒绝
+            task.triggerNow();
+            task.triggerNow();
+            assertTrue(awaitStatus(events, TaskEventStatus.REJECTED));
+            release.countDown();
+            assertTrue(awaitCount(executions, 3));
+        }
     }
 
     @Test
@@ -170,24 +192,20 @@ class LavaSchedulerTest {
     }
 
     @Test
-    void runtimeCoordinatorDelayAppliesSkipAndFireOnceMisfirePolicies() throws Exception {
+    void coordinatorDelayStillRunsTheLateOccurrenceOnce() throws Exception {
         CountDownLatch runningStarted = new CountDownLatch(1);
         CountDownLatch releaseRunning = new CountDownLatch(1);
         CountDownLatch coordinatorBlocked = new CountDownLatch(1);
         CountDownLatch releaseCoordinator = new CountDownLatch(1);
-        CountDownLatch skipObserved = new CountDownLatch(1);
-        CountDownLatch fireOnceRan = new CountDownLatch(1);
-        AtomicInteger skippedExecutions = new AtomicInteger();
+        AtomicInteger lateExecutions = new AtomicInteger();
+        CountDownLatch lateRan = new CountDownLatch(1);
 
+        // 监听器在协调线程上阻塞，使后注册任务的计划时刻被错过
         LavaScheduler scheduler = LavaScheduler.builder().listener(event -> {
             if (event.taskId().equals("coordinator-blocker")
                     && event.status() == TaskEventStatus.SKIPPED) {
                 coordinatorBlocked.countDown();
                 awaitUnchecked(releaseCoordinator);
-            }
-            if (event.taskId().equals("runtime-skip")
-                    && event.status() == TaskEventStatus.SKIPPED) {
-                skipObserved.countDown();
             }
         }).build();
         try {
@@ -198,97 +216,21 @@ class LavaSchedulerTest {
             blocker.triggerNow();
             assertTrue(runningStarted.await(2, TimeUnit.SECONDS));
 
-            scheduler.schedule(
-                    "runtime-skip",
-                    skippedExecutions::incrementAndGet,
-                    Trigger.after(Duration.ofMillis(100)),
-                    new ScheduleOptions(ConcurrencyPolicy.SERIAL_SKIP, MisfirePolicy.SKIP));
-            scheduler.schedule(
-                    "runtime-fire-once",
-                    fireOnceRan::countDown,
-                    Trigger.after(Duration.ofMillis(100)),
-                    new ScheduleOptions(ConcurrencyPolicy.SERIAL_SKIP, MisfirePolicy.FIRE_ONCE));
+            scheduler.schedule("late", () -> {
+                lateExecutions.incrementAndGet();
+                lateRan.countDown();
+            }, Trigger.after(Duration.ofMillis(100)));
 
             assertTrue(coordinatorBlocked.await(2, TimeUnit.SECONDS));
             Thread.sleep(150);
             releaseCoordinator.countDown();
 
-            assertTrue(skipObserved.await(2, TimeUnit.SECONDS));
-            assertTrue(fireOnceRan.await(2, TimeUnit.SECONDS));
-            assertEquals(0, skippedExecutions.get());
+            assertTrue(lateRan.await(2, TimeUnit.SECONDS), "错过的触发仍应执行一次");
+            assertEquals(1, lateExecutions.get());
         } finally {
             releaseCoordinator.countDown();
             releaseRunning.countDown();
             scheduler.close();
-        }
-    }
-
-    @Test
-    void sustainedExecutorRejectionDrainsPendingIteratively() throws Exception {
-        int pendingCount = 5_000;
-        ExecutorService borrowed = Executors.newSingleThreadExecutor();
-        CountDownLatch started = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        CountDownLatch rejected = new CountDownLatch(pendingCount);
-        AtomicInteger executions = new AtomicInteger();
-        LavaScheduler scheduler = LavaScheduler.builder()
-                .executor(borrowed)
-                .listener(event -> {
-                    if (event.taskId().equals("iterative-rejection")
-                            && event.status() == TaskEventStatus.REJECTED) {
-                        rejected.countDown();
-                    }
-                })
-                .build();
-        try {
-            ScheduledTask task = scheduler.schedule("iterative-rejection", () -> {
-                executions.incrementAndGet();
-                started.countDown();
-                awaitUnchecked(release);
-            }, Trigger.after(Duration.ofHours(1)), new ScheduleOptions(
-                    ConcurrencyPolicy.serialQueue(pendingCount), MisfirePolicy.SKIP));
-
-            task.triggerNow();
-            assertTrue(started.await(2, TimeUnit.SECONDS));
-            for (int index = 0; index < pendingCount; index++) {
-                task.triggerNow();
-            }
-
-            borrowed.shutdown();
-            release.countDown();
-
-            assertTrue(rejected.await(5, TimeUnit.SECONDS));
-            assertEquals(1, executions.get());
-        } finally {
-            release.countDown();
-            scheduler.close(Duration.ZERO);
-            borrowed.shutdownNow();
-        }
-    }
-
-    private static void verifyBoundedPolicy(
-            ConcurrencyPolicy policy, int initialConcurrency, int expectedExecutions) throws Exception {
-        CountDownLatch started = new CountDownLatch(initialConcurrency);
-        CountDownLatch release = new CountDownLatch(1);
-        AtomicInteger executions = new AtomicInteger();
-        List<TaskEvent> events = new CopyOnWriteArrayList<>();
-        ScheduleOptions options = new ScheduleOptions(policy, MisfirePolicy.SKIP);
-        try (LavaScheduler scheduler = LavaScheduler.builder().listener(events::add).build()) {
-            ScheduledTask task = scheduler.schedule("bounded-" + policy.kind(), () -> {
-                executions.incrementAndGet();
-                started.countDown();
-                awaitUnchecked(release);
-            }, Trigger.after(Duration.ofHours(1)), options);
-
-            for (int index = 0; index < initialConcurrency; index++) {
-                task.triggerNow();
-            }
-            assertTrue(started.await(2, TimeUnit.SECONDS));
-            task.triggerNow();
-            task.triggerNow();
-            assertTrue(awaitStatus(events, TaskEventStatus.REJECTED));
-            release.countDown();
-            assertTrue(awaitCount(executions, expectedExecutions));
         }
     }
 
@@ -324,74 +266,24 @@ class LavaSchedulerTest {
     }
 
     @Test
-    void fixedClockMakesAllMisfirePoliciesDeterministic() throws Exception {
+    void missedOccurrencesCoalesceIntoOneExecution() throws Exception {
         Instant now = Instant.parse("2026-08-17T00:00:00Z");
         Clock clock = Clock.fixed(now, ZoneOffset.UTC);
-        Trigger overdue = Trigger.fixedRate(now.minusSeconds(3), Duration.ofSeconds(1));
-
-        CountDownLatch currentOccurrence = new CountDownLatch(1);
-        List<TaskEvent> skippedEvents = new CopyOnWriteArrayList<>();
-        try (LavaScheduler scheduler = LavaScheduler.builder()
-                .clock(clock)
-                .listener(skippedEvents::add)
-                .build()) {
-            scheduler.schedule("skip", currentOccurrence::countDown, overdue,
-                    new ScheduleOptions(ConcurrencyPolicy.SERIAL_SKIP, MisfirePolicy.SKIP));
-            assertTrue(currentOccurrence.await(2, TimeUnit.SECONDS));
-            assertEquals(3, skippedEvents.stream()
-                    .filter(event -> event.status() == TaskEventStatus.SKIPPED)
-                    .count());
-        }
-
-        CountDownLatch fireOnce = new CountDownLatch(1);
-        try (LavaScheduler scheduler = LavaScheduler.builder().clock(clock).build()) {
-            scheduler.schedule("once-misfire", fireOnce::countDown, overdue,
-                    new ScheduleOptions(ConcurrencyPolicy.SERIAL_SKIP, MisfirePolicy.FIRE_ONCE));
-            assertTrue(fireOnce.await(2, TimeUnit.SECONDS));
-        }
-
-        CountDownLatch catchUp = new CountDownLatch(4);
-        try (LavaScheduler scheduler = LavaScheduler.builder().clock(clock).build()) {
-            scheduler.schedule("catch-up", catchUp::countDown, overdue,
-                    new ScheduleOptions(ConcurrencyPolicy.serialQueue(4), MisfirePolicy.CATCH_UP));
-            assertTrue(catchUp.await(2, TimeUnit.SECONDS));
-        }
-    }
-
-    @Test
-    void catchUpLimitRejectsTheFirstUnprocessedOccurrenceWithoutDuplicatingAStatus()
-            throws Exception {
-        Instant now = Instant.parse("2026-08-17T00:00:00Z");
-        Clock clock = Clock.fixed(now, ZoneOffset.UTC);
+        AtomicInteger executions = new AtomicInteger();
         List<TaskEvent> events = new CopyOnWriteArrayList<>();
-        CountDownLatch rejected = new CountDownLatch(1);
         try (LavaScheduler scheduler = LavaScheduler.builder()
                 .clock(clock)
-                .listener(event -> {
-                    events.add(event);
-                    if (event.status() == TaskEventStatus.REJECTED) {
-                        rejected.countDown();
-                    }
-                })
+                .listener(events::add)
                 .build()) {
-            scheduler.schedule(
-                    "catch-up-limit",
-                    () -> {
-                    },
-                    Trigger.fixedRate(now.minusSeconds(10_001), Duration.ofSeconds(1)),
-                    new ScheduleOptions(ConcurrencyPolicy.SERIAL_SKIP, MisfirePolicy.SKIP));
+            // 积压一万多次触发也只合并执行一次，并直接推进到当前时刻之后
+            ScheduledTask task = scheduler.schedule("backlog", executions::incrementAndGet,
+                    Trigger.fixedRate(now.minusSeconds(10_001), Duration.ofSeconds(1)));
 
-            assertTrue(rejected.await(2, TimeUnit.SECONDS));
-            TaskEvent rejectedEvent = events.stream()
-                    .filter(event -> event.status() == TaskEventStatus.REJECTED)
-                    .findFirst()
-                    .orElseThrow();
-            assertEquals(10_000, events.stream()
-                    .filter(event -> event.status() == TaskEventStatus.SKIPPED)
-                    .count());
-            assertFalse(events.stream()
-                    .filter(event -> event.status() == TaskEventStatus.SKIPPED)
-                    .anyMatch(event -> event.scheduledAt().equals(rejectedEvent.scheduledAt())));
+            assertTrue(awaitStatus(events, TaskEventStatus.SUCCESS));
+            Thread.sleep(50);
+            assertEquals(1, executions.get());
+            assertTrue(events.stream().noneMatch(event -> event.status() == TaskEventStatus.SKIPPED));
+            assertEquals(now.plusSeconds(1), task.nextExecution());
         }
     }
 
@@ -520,8 +412,6 @@ class LavaSchedulerTest {
                     () -> scheduler.schedule("duplicate", () -> {
                     }, Trigger.after(Duration.ofHours(1))));
         }
-        assertThrows(IllegalArgumentException.class, () -> ConcurrencyPolicy.serialQueue(0));
-        assertThrows(IllegalArgumentException.class, () -> ConcurrencyPolicy.parallel(0, 0));
         assertThrows(IllegalArgumentException.class,
                 () -> LavaScheduler.builder().executionBounds(1, 0));
         assertThrows(IllegalArgumentException.class,

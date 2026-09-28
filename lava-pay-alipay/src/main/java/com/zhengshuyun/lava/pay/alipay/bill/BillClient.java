@@ -10,7 +10,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.http.HttpMethod;
 import com.zhengshuyun.lava.pay.alipay.exception.AlipayProtocolException;
-import com.zhengshuyun.lava.pay.alipay.internal.AlipayRuntime;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayTransport;
 import org.jspecify.annotations.Nullable;
 
@@ -27,19 +26,17 @@ public final class BillClient {
     /** 查询对账单下载地址的 OpenAPI V3 固定路径。 */
     private static final String QUERY_PATH =
             "/v3/alipay/data/dataservice/bill/downloadurl/query";
-    /** 汇总结算账单支持查询的最早业务日期。 */
-    private static final LocalDate SETTLEMENT_MERGE_START = LocalDate.of(2023, 4, 17);
 
     /** 根客户端共享的 V3 传输层和关闭状态。 */
-    private final AlipayRuntime runtime;
+    private final AlipayTransport transport;
 
     /**
      * 由根客户端创建账单入口。
      *
-     * @param runtime 共享运行时
+     * @param transport 共享协议传输层
      */
-    public BillClient(AlipayRuntime runtime) {
-        this.runtime = ValidationUtils.requireNonNull(runtime, "runtime");
+    public BillClient(AlipayTransport transport) {
+        this.transport = ValidationUtils.requireNonNull(transport, "transport");
     }
 
     /**
@@ -72,9 +69,8 @@ public final class BillClient {
      */
     public BillDownloadInfo query(BillRequest request) {
         // 1. 按支付宝业务时区校验账单日期，并构造最终参与 V3 签名的查询参数。
-        AlipayTransport transport = runtime.transport();
+        transport.ensureOpen();
         ValidationUtils.requireNonNull(request, "request must not be null");
-        validateDate(transport, request);
         String billDate = request.date() == null
                 ? request.month().toString() : request.date().toString();
         Map<String, String> query = new LinkedHashMap<>();
@@ -101,31 +97,6 @@ public final class BillClient {
     }
 
     /**
-     * 校验日账单或月账单处于支付宝当前可查询时间窗口内。
-     *
-     * @param transport 共享传输层
-     * @param request   账单请求
-     */
-    private static void validateDate(AlipayTransport transport, BillRequest request) {
-        LocalDate today = transport.currentDateTime().toLocalDate();
-        if (request.date() != null) {
-            ValidationUtils.requireTrue(request.date().isBefore(today),
-                    "daily bill date must be before today");
-            ValidationUtils.requireTrue(!request.date().isBefore(today.minusYears(6)),
-                    "daily bill date must be within the last 6 years");
-            ValidationUtils.requireTrue(!BillType.SETTLEMENT_MERGE.equals(request.billType())
-                            || !request.date().isBefore(SETTLEMENT_MERGE_START),
-                    "settlementMerge bill date must not be before 2023-04-17");
-        } else {
-            YearMonth current = YearMonth.from(today);
-            ValidationUtils.requireTrue(request.month().isBefore(current),
-                    "monthly bill month must be before the current month");
-            ValidationUtils.requireTrue(!request.month().isBefore(current.minusYears(6)),
-                    "monthly bill month must be within the last 6 years");
-        }
-    }
-
-    /**
      * 解析并校验支付宝返回的账单下载地址。
      *
      * @param value 可选下载地址文本
@@ -139,7 +110,7 @@ public final class BillClient {
         try {
             uri = URI.create(value);
         } catch (IllegalArgumentException exception) {
-            throw new AlipayProtocolException("支付宝账单下载地址格式无效");
+            throw new AlipayProtocolException("支付宝账单下载地址格式无效", exception);
         }
         if (!uri.isAbsolute() || uri.getHost() == null || uri.getUserInfo() != null
                 || uri.getRawFragment() != null

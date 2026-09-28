@@ -16,7 +16,7 @@
 
 package com.zhengshuyun.lava.pay.wechat;
 
-import com.zhengshuyun.lava.pay.wechat.internal.WechatPayRuntime;
+import com.zhengshuyun.lava.pay.wechat.internal.WechatPayTransport;
 import com.zhengshuyun.lava.pay.wechat.nativepay.NativePayClient;
 
 import java.net.URI;
@@ -44,16 +44,16 @@ public final class WechatPayApplication {
     /**
      * 由微信支付根客户端创建应用上下文。
      *
-     * @param runtime   共享运行时
+     * @param transport   共享协议传输层
      * @param appid     已校验的应用 ID
      * @param notifyUrl 已校验的支付结果通知地址
      */
-    WechatPayApplication(WechatPayRuntime runtime,
+    WechatPayApplication(WechatPayTransport transport,
                          String appid,
                          URI notifyUrl) {
         this.appid = appid;
         this.notifyUrl = notifyUrl;
-        nativePayClient = new NativePayClient(runtime, appid, notifyUrl);
+        nativePayClient = new NativePayClient(transport, appid, notifyUrl);
     }
 
     /**

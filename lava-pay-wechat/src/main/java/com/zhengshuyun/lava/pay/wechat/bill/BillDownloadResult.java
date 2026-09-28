@@ -23,13 +23,4 @@ public record BillDownloadResult(
         String hashType,
         String hashValue
 ) {
-    /**
-     * 校验下载结果。
-     */
-    public BillDownloadResult {
-        ValidationUtils.requireNonNull(path, "path must not be null");
-        ValidationUtils.requireTrue(size >= 0, "size must not be negative");
-        ValidationUtils.requireNotBlank(hashType, "hashType must not be blank");
-        ValidationUtils.requireNotBlank(hashValue, "hashValue must not be blank");
-    }
 }

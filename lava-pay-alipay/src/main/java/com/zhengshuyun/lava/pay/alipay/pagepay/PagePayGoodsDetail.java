@@ -38,29 +38,19 @@ public final class PagePayGoodsDetail {
      * 使用构建期参数创建并校验不可变商品明细。
      *
      * @param builder 已收集必填商品标识、名称、数量、价格及可选扩展字段的构建器
-     * @throws IllegalArgumentException 必填字段缺失，文本、数量、价格或展示地址不符合支付宝约束
+     * @throws IllegalArgumentException 必填字段缺失，数量或价格不是正数，或展示地址不是绝对 HTTP(S) 地址
      */
     private PagePayGoodsDetail(Builder builder) {
-        goodsId = AlipayValidationUtils.requireIdentifier(builder.goodsId,
-                "goodsId", 64);
-        goodsName = AlipayValidationUtils.requireText(
-                builder.goodsName,
-                "goodsName",
-                1,
-                256
-        );
+        goodsId = ValidationUtils.requireNotBlank(builder.goodsId, "goodsId must not be blank");
+        goodsName = ValidationUtils.requireNotBlank(builder.goodsName, "goodsName must not be blank");
         quantity = ValidationUtils.requireNonNull(builder.quantity, "quantity is required");
         ValidationUtils.requireTrue(quantity > 0, "quantity must be positive");
         price = AlipayValidationUtils.requirePositiveAmount(
-                ValidationUtils.requireNonNull(builder.price, "price is required"),
-                999_999_999L, "price");
-        alipayGoodsId = AlipayValidationUtils.requireOptionalText(
-                builder.alipayGoodsId, "alipayGoodsId", 32);
-        goodsCategory = AlipayValidationUtils.requireOptionalText(
-                builder.goodsCategory, "goodsCategory", 24);
-        categoriesTree = AlipayValidationUtils.requireOptionalText(
-                builder.categoriesTree, "categoriesTree", 128);
-        body = AlipayValidationUtils.requireOptionalText(builder.body, "body", 400);
+                ValidationUtils.requireNonNull(builder.price, "price is required"), "price");
+        alipayGoodsId = builder.alipayGoodsId;
+        goodsCategory = builder.goodsCategory;
+        categoriesTree = builder.categoriesTree;
+        body = builder.body;
         showUrl = builder.showUrl;
         if (showUrl != null) {
             ValidationUtils.requireTrue(showUrl.isAbsolute()
@@ -68,8 +58,6 @@ public final class PagePayGoodsDetail {
                             || "https".equalsIgnoreCase(showUrl.getScheme()))
                             && showUrl.getUserInfo() == null && showUrl.getRawFragment() == null,
                     "showUrl must be an absolute HTTP or HTTPS URI");
-            ValidationUtils.requireTrue(showUrl.toASCIIString().length() <= 400,
-                    "showUrl must not exceed 400 characters");
         }
     }
 

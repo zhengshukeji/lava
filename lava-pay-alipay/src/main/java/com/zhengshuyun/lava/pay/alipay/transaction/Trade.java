@@ -90,6 +90,6 @@ public record Trade(
      * @param amount      使用金额，单位为分
      * @param realAmount  渠道实际付款金额，单位为分；没有时为 {@code null}
      */
-    public record FundBill(String fundChannel, long amount, @Nullable Long realAmount) {
+    public record FundBill(@Nullable String fundChannel, long amount, @Nullable Long realAmount) {
     }
 }

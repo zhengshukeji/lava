@@ -14,24 +14,37 @@
  * limitations under the License.
  */
 
+
 package com.zhengshuyun.lava.http;
 
+import okhttp3.Response;
 import org.jspecify.annotations.Nullable;
 
 import java.io.InputStream;
 import java.nio.charset.Charset;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 简洁命名的流式响应句柄；关闭后释放底层网络调用。
+ * 未缓冲的流式响应句柄；调用方必须关闭它以释放底层连接，推荐使用 try-with-resources。
  */
 public final class HttpStream implements AutoCloseable {
-    /**
-     * 实际持有网络响应和关闭责任的底层句柄。
-     */
-    private final HttpStreamingResponse delegate;
 
-    HttpStream(HttpStreamingResponse delegate) {
-        this.delegate = delegate;
+    private final Response response;
+    private final HttpHeaders headers;
+    private final HttpCallMetadata metadata;
+    /**
+     * 关闭时通知客户端注销活动调用。
+     */
+    private final Runnable onClose;
+    private final AtomicBoolean closed = new AtomicBoolean();
+    private final AtomicBoolean bodyClaimed = new AtomicBoolean();
+
+    HttpStream(Response response, HttpCallMetadata metadata, Runnable onClose) {
+        this.response = response;
+        this.headers = HttpHeaders.fromOkHttp(response.headers());
+        this.metadata = metadata;
+        this.onClose = onClose;
     }
 
     /**
@@ -40,7 +53,7 @@ public final class HttpStream implements AutoCloseable {
      * @return 状态码
      */
     public int statusCode() {
-        return delegate.getCode();
+        return response.code();
     }
 
     /**
@@ -49,7 +62,7 @@ public final class HttpStream implements AutoCloseable {
      * @return 状态文本
      */
     public String statusMessage() {
-        return delegate.getMessage();
+        return response.message();
     }
 
     /**
@@ -58,92 +71,116 @@ public final class HttpStream implements AutoCloseable {
      * @return 2xx 时返回 true
      */
     public boolean isSuccessful() {
-        return delegate.isSuccessful();
+        return response.isSuccessful();
     }
 
     /**
-     * 判断响应是否为重定向状态。
+     * 判断响应是否为重定向。
      *
-     * @return 3xx 时返回 true
+     * @return 重定向状态码时返回 true
      */
     public boolean isRedirect() {
-        return delegate.isRedirect();
+        return response.isRedirect();
     }
 
     /**
      * 返回全部响应头。
      *
-     * @return 响应头集合
+     * @return 响应头
      */
     public HttpHeaders headers() {
-        return delegate.getHeaders();
+        return headers;
     }
 
     /**
-     * 按名称返回第一个响应头值。
+     * 返回指定名称的最后一个响应头值。
      *
-     * @param name 响应头名称
+     * @param name 响应头名称，不区分大小写
      * @return 响应头值；不存在时为 null
      */
     public @Nullable String header(String name) {
-        return delegate.getHeader(name);
+        return headers.get(name);
     }
 
     /**
-     * 返回响应声明的正文长度。
+     * 返回指定名称的全部响应头值。
      *
-     * @return 字节长度；未知时为 -1
+     * @param name 响应头名称，不区分大小写
+     * @return 响应头值列表
+     */
+    public List<String> headers(String name) {
+        return headers.values(name);
+    }
+
+    /**
+     * 返回服务端声明的正文长度。
+     *
+     * @return 正文字节数；未知时为 -1
      */
     public long contentLength() {
-        return delegate.getContentLength();
+        return response.body().contentLength();
     }
 
     /**
-     * 返回从 Content-Type 推断出的正文字符集。
+     * 返回按 Content-Type 解析的字符集，缺省为 UTF-8。
      *
-     * @return 字符集
+     * @return 响应字符集
      */
     public Charset charset() {
-        return delegate.getCharset();
+        return HttpResponse.responseCharset(response);
     }
 
     /**
-     * 返回协商后的 HTTP 协议。
+     * 返回协商的 HTTP 协议，例如 {@code http/1.1}。
      *
      * @return 协议名称
      */
     public String protocol() {
-        return delegate.getProtocol();
+        return response.protocol().toString();
     }
 
     /**
-     * 获取只能读取一次的正文流。
+     * 返回响应正文流；只能获取一次，流的生命周期由本句柄的 {@link #close()} 管理。
      *
-     * @return 正文输入流
+     * @return 响应正文流
+     * @throws IllegalStateException 句柄已关闭，或正文流已被获取
      */
     public InputStream body() {
-        return delegate.getBodyAsStream();
+        if (closed.get()) {
+            throw new IllegalStateException("response is closed");
+        }
+        if (!bodyClaimed.compareAndSet(false, true)) {
+            throw new IllegalStateException("response body stream has already been obtained");
+        }
+        return response.body().byteStream();
     }
 
     /**
-     * 返回本次调用的已脱敏元数据。
+     * 返回已脱敏的调用元数据。
      *
      * @return 调用元数据
      */
     public HttpCallMetadata metadata() {
-        return delegate.getMetadata();
+        return metadata;
     }
 
     /**
-     * 关闭底层响应并释放网络调用。
+     * 关闭响应并释放连接；可重复调用。
      */
     @Override
     public void close() {
-        delegate.close();
+        if (closed.compareAndSet(false, true)) {
+            try {
+                response.close();
+            } finally {
+                // 无论响应关闭是否抛错，都必须注销活动调用
+                onClose.run();
+            }
+        }
     }
 
     @Override
     public String toString() {
-        return delegate.toString();
+        return metadata.toString();
     }
 }

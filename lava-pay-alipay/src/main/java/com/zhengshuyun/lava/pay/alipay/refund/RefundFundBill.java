@@ -16,7 +16,7 @@ import org.jspecify.annotations.Nullable;
  * @param fundType    银行卡资金类型；没有时为 {@code null}
  */
 public record RefundFundBill(
-        String fundChannel,
+        @Nullable String fundChannel,
         long amount,
         @Nullable Long realAmount,
         @Nullable String fundType

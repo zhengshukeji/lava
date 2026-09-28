@@ -6,7 +6,6 @@
 package com.zhengshuyun.lava.pay.alipay.refund;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
-import com.zhengshuyun.lava.pay.alipay.internal.AlipayMoneyUtils;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayValidationUtils;
 import org.jspecify.annotations.Nullable;
 
@@ -23,11 +22,6 @@ import java.util.Set;
  * 优先使用交易号。</p>
  */
 public final class RefundRequest {
-    /** 退款接口允许请求的扩展响应字段集合。 */
-    private static final Set<String> OPTIONS = Set.of(
-            RefundQueryOption.REFUND_DETAIL_ITEM_LIST,
-            RefundQueryOption.DEPOSIT_BACK_INFO,
-            RefundQueryOption.REFUND_VOUCHER_DETAIL_LIST);
 
     /** 商户订单号；与支付宝交易号至少提供一个，同时存在时支付宝优先使用交易号。 */
     private final @Nullable String outTradeNo;
@@ -48,7 +42,7 @@ public final class RefundRequest {
      * 使用构建期参数创建并校验不可变退款请求。
      *
      * @param builder 已收集交易标识、退款金额、幂等请求号和可选退款明细的构建器
-     * @throws IllegalArgumentException 必填字段缺失、字段越界，或商品明细退款金额合计超过本次退款金额
+     * @throws IllegalArgumentException 必填字段缺失、金额不是正数，或商品明细退款金额合计超过本次退款金额
      */
     private RefundRequest(Builder builder) {
         ValidationUtils.requireTrue(builder.outTradeNo != null || builder.tradeNo != null,
@@ -57,13 +51,10 @@ public final class RefundRequest {
                 : AlipayValidationUtils.requireOutTradeNo(builder.outTradeNo);
         tradeNo = builder.tradeNo == null ? null
                 : AlipayValidationUtils.requireTradeNo(builder.tradeNo);
-        refundAmount = AlipayValidationUtils.requirePositiveAmount(
-                ValidationUtils.requireNonNull(builder.refundAmount,
-                        "refundAmount is required"),
-                AlipayMoneyUtils.MAX_PAYMENT_CENTS, "refundAmount");
+        refundAmount = AlipayValidationUtils.requirePositiveAmount(ValidationUtils.requireNonNull(builder.refundAmount,
+                        "refundAmount is required"), "refundAmount");
         outRequestNo = AlipayValidationUtils.requireOutRequestNo(builder.outRequestNo);
-        reason = AlipayValidationUtils.requireOptionalText(
-                builder.reason, "reason", 256);
+        reason = builder.reason;
         goodsDetail = List.copyOf(builder.goodsDetail);
         long detailAmount = 0;
         for (RefundGoodsDetail item : goodsDetail) {
@@ -241,8 +232,7 @@ public final class RefundRequest {
          * @return 当前构建器
          */
         public Builder addQueryOption(String value) {
-            queryOptions.add(AlipayValidationUtils.requireOneOf(
-                    value, "queryOption", OPTIONS));
+            queryOptions.add(ValidationUtils.requireNotBlank(value, "queryOption must not be blank"));
             return this;
         }
 

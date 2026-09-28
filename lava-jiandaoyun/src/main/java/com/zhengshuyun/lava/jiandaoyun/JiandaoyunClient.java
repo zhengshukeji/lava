@@ -22,7 +22,6 @@ import com.zhengshuyun.lava.http.OkHttpInterop;
 import com.zhengshuyun.lava.jiandaoyun.application.ApplicationClient;
 import com.zhengshuyun.lava.jiandaoyun.form.FormClient;
 import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunJsonUtils;
-import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunRuntime;
 import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunTransport;
 import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunValidationUtils;
 import org.jspecify.annotations.Nullable;
@@ -43,9 +42,9 @@ public final class JiandaoyunClient implements AutoCloseable {
     public static final URI DEFAULT_API_BASE_URL = URI.create("https://api.jiandaoyun.com/");
 
     /**
-     * 集中管理共享传输层、HTTP 资源所有权和客户端关闭状态的运行时。
+     * 共享的协议传输层，同时持有 HTTP 资源所有权与客户端关闭状态。
      */
-    private final JiandaoyunRuntime runtime;
+    private final JiandaoyunTransport transport;
     /**
      * 应用查询入口。
      */
@@ -56,18 +55,18 @@ public final class JiandaoyunClient implements AutoCloseable {
     private final FormClient formClient;
 
     /**
-     * 使用共享运行时创建并缓存各领域入口。
+     * 使用共享传输层创建并缓存各领域入口。
      *
-     * @param runtime 已建立传输层与 HTTP 资源所有权的共享运行时
+     * @param transport 共享协议传输层
      */
-    private JiandaoyunClient(JiandaoyunRuntime runtime) {
-        this.runtime = runtime;
-        applicationClient = new ApplicationClient(runtime);
-        formClient = new FormClient(runtime);
+    private JiandaoyunClient(JiandaoyunTransport transport) {
+        this.transport = transport;
+        applicationClient = new ApplicationClient(transport);
+        formClient = new FormClient(transport);
     }
 
     /**
-     * 创建一次性客户端构建器。
+     * 创建客户端构建器。
      *
      * @return 新构建器
      */
@@ -81,7 +80,7 @@ public final class JiandaoyunClient implements AutoCloseable {
      * @return 应用客户端
      */
     public ApplicationClient applications() {
-        runtime.ensureOpen();
+        transport.ensureOpen();
         return applicationClient;
     }
 
@@ -91,7 +90,7 @@ public final class JiandaoyunClient implements AutoCloseable {
      * @return 表单客户端
      */
     public FormClient forms() {
-        runtime.ensureOpen();
+        transport.ensureOpen();
         return formClient;
     }
 
@@ -101,14 +100,11 @@ public final class JiandaoyunClient implements AutoCloseable {
      */
     @Override
     public void close() {
-        runtime.close();
+        transport.close();
     }
 
     /**
-     * 简道云根客户端的一次性 fluent 构建器。
-     *
-     * <p>构建前必须配置 API Key。每次构建尝试后，构建器都会清除 API Key 引用；失败后重试
-     * 必须重新配置。构建成功后，所有配置方法和 {@link #build()} 均不可再次调用。</p>
+     * 简道云根客户端的 fluent 构建器，构建前必须配置 API Key。
      */
     public static final class Builder {
         /**
@@ -123,10 +119,6 @@ public final class JiandaoyunClient implements AutoCloseable {
          * 简道云 API 根地址，默认使用官方域名。
          */
         private URI apiBaseUrl = DEFAULT_API_BASE_URL;
-        /**
-         * 构建成功标记，防止构建器重复持有或使用敏感配置。
-         */
-        private boolean built;
 
         /** 创建使用官方域名的空构建器。 */
         private Builder() {
@@ -139,7 +131,6 @@ public final class JiandaoyunClient implements AutoCloseable {
          * @return 当前构建器
          */
         public Builder apiKey(String value) {
-            ensureNotBuilt();
             apiKey = ValidationUtils.requireNotBlank(value, "apiKey must not be blank");
             return this;
         }
@@ -152,7 +143,6 @@ public final class JiandaoyunClient implements AutoCloseable {
          * @return 当前构建器
          */
         public Builder httpClient(HttpClient value) {
-            ensureNotBuilt();
             ValidationUtils.requireNonNull(value, "httpClient must not be null");
             ValidationUtils.requireTrue(
                     !OkHttpInterop.unwrap(value).retryOnConnectionFailure(),
@@ -179,7 +169,6 @@ public final class JiandaoyunClient implements AutoCloseable {
          * @return 当前构建器
          */
         public Builder apiBaseUrl(URI value) {
-            ensureNotBuilt();
             apiBaseUrl = JiandaoyunValidationUtils.requireApiBaseUrl(value);
             return this;
         }
@@ -191,12 +180,11 @@ public final class JiandaoyunClient implements AutoCloseable {
          * @return 当前构建器
          */
         public Builder apiBaseUrl(String value) {
-            ensureNotBuilt();
             ValidationUtils.requireNotBlank(value, "apiBaseUrl must not be blank");
             try {
                 return apiBaseUrl(new URI(value));
             } catch (URISyntaxException exception) {
-                throw new IllegalArgumentException("apiBaseUrl must be a valid URI");
+                throw new IllegalArgumentException("apiBaseUrl must be a valid URI", exception);
             }
         }
 
@@ -206,64 +194,23 @@ public final class JiandaoyunClient implements AutoCloseable {
          * @return 简道云根客户端
          */
         public JiandaoyunClient build() {
-            ensureNotBuilt();
-            try {
-                // 1. 一次性读取并校验必需配置，避免半初始化客户端进入简道云协议流程。
-                String configuredApiKey = ValidationUtils.requireNonNull(
-                        apiKey,
-                        "apiKey is required"
-                );
-
-                // 2. 未借用外部客户端时创建专属 HTTP 客户端；简道云接口统一使用 POST，
-                //    连接失败静默重试可能造成服务端重复计频，必须关闭。
-                HttpClient configuredHttpClient = httpClient;
-                boolean ownsClient = configuredHttpClient == null;
-                if (configuredHttpClient == null) {
-                    configuredHttpClient = HttpClient.builder()
-                            .retryOnConnectionFailure(false)
-                            .followRedirects(false)
-                            .followSslRedirects(false)
-                            .build();
-                }
-
-                try {
-                    // 3. 封装协议能力与资源所有权，再创建只负责暴露领域入口的根客户端。
-                    JiandaoyunTransport transport = new JiandaoyunTransport(
-                            configuredApiKey,
-                            configuredHttpClient,
-                            apiBaseUrl,
-                            JiandaoyunJsonUtils.codec()
-                    );
-                    JiandaoyunRuntime runtime = new JiandaoyunRuntime(
-                            transport,
-                            configuredHttpClient,
-                            ownsClient
-                    );
-                    JiandaoyunClient client = new JiandaoyunClient(runtime);
-                    built = true;
-                    return client;
-                } catch (RuntimeException exception) {
-                    // 仅回收本构建器创建的资源，调用方借出的 HTTP 客户端仍由调用方负责关闭。
-                    if (ownsClient) {
-                        configuredHttpClient.close();
-                    }
-                    throw exception;
-                }
-            } finally {
-                // 4. 每次构建尝试后都清除 API Key 引用，失败重试必须重新配置。
-                apiKey = null;
-            }
-        }
-
-        /**
-         * 确认构建器尚未成功创建客户端。
-         *
-         * @throws IllegalStateException 构建器已经成功使用
-         */
-        private void ensureNotBuilt() {
-            if (built) {
-                throw new IllegalStateException("JiandaoyunClient.Builder cannot be reused");
-            }
+            String configuredApiKey = ValidationUtils.requireNonNull(apiKey, "apiKey is required");
+            // 未借用外部客户端时创建专属 HTTP 客户端；简道云接口统一使用 POST，
+            // 连接失败静默重试可能造成服务端重复计频，必须关闭
+            boolean ownsClient = httpClient == null;
+            HttpClient configuredHttpClient = ownsClient
+                    ? HttpClient.builder()
+                    .retryOnConnectionFailure(false)
+                    .followRedirects(false)
+                    .followSslRedirects(false)
+                    .build()
+                    : httpClient;
+            return new JiandaoyunClient(new JiandaoyunTransport(
+                    configuredApiKey,
+                    configuredHttpClient,
+                    ownsClient,
+                    apiBaseUrl,
+                    JiandaoyunJsonUtils.codec()));
         }
     }
 }

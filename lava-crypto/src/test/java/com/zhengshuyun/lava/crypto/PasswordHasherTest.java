@@ -27,30 +27,17 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class PasswordHasherTest {
 
-    private static final PasswordHashPolicy FAST_POLICY = new PasswordHashPolicy(
-            new PasswordHashPolicy.Generation(1_024, 1, 1, 8, 16),
-            new PasswordHashPolicy.VerificationLimits(2_048, 3, 2, 32, 32));
+    private static final PasswordHashPolicy FAST_POLICY = new PasswordHashPolicy(1_024, 1, 1, 8, 16);
 
     @Test
     void defaultsMatchTheDocumentedSecurityPolicy() {
-        PasswordHashPolicy policy = PasswordHashPolicy.defaults();
-
-        assertTrue(policy == PasswordHashPolicy.DEFAULT);
-        assertTrue(policy.generation().memoryKiB() == 65_536);
-        assertTrue(policy.generation().iterations() == 3);
-        assertTrue(policy.generation().parallelism() == 1);
-        assertTrue(policy.generation().saltLengthBytes() == 16);
-        assertTrue(policy.generation().hashLengthBytes() == 32);
-        assertTrue(policy.verificationLimits().maxMemoryKiB() == 262_144);
-        assertTrue(policy.verificationLimits().maxIterations() == 10);
-        assertTrue(policy.verificationLimits().maxParallelism() == 16);
-        assertTrue(policy.verificationLimits().maxSaltLengthBytes() == 64);
-        assertTrue(policy.verificationLimits().maxHashLengthBytes() == 64);
+        assertEquals(new PasswordHashPolicy(65_536, 3, 1, 16, 32), PasswordHashPolicy.DEFAULT);
+        assertEquals(PasswordHashPolicy.DEFAULT, new PasswordHasher().policy());
     }
 
     @Test
     void roundTripsUnicodeEmptyAndWhitespacePasswordsWithoutChangingCallerArray() {
-        PasswordHasher hasher = PasswordHasher.withPolicy(FAST_POLICY);
+        PasswordHasher hasher = new PasswordHasher(FAST_POLICY);
         for (String password : List.of("", "   ", "密码🔐\u0000value")) {
             char[] chars = password.toCharArray();
             char[] original = chars.clone();
@@ -66,7 +53,7 @@ class PasswordHasherTest {
 
     @Test
     void rejectsMalformedUtf16InsteadOfCollapsingDistinctPasswords() {
-        PasswordHasher hasher = PasswordHasher.withPolicy(FAST_POLICY);
+        PasswordHasher hasher = new PasswordHasher(FAST_POLICY);
 
         assertThrows(IllegalArgumentException.class, () -> hasher.hash(new char[]{'a', '\ud800'}));
         assertThrows(IllegalArgumentException.class, () -> hasher.hash(new char[]{'a', '\ud801'}));
@@ -87,12 +74,10 @@ class PasswordHasherTest {
 
     @Test
     void needsRehashComparesGenerationParametersButStillVerifiesOldHashes() {
-        PasswordHasher oldHasher = PasswordHasher.withPolicy(FAST_POLICY);
+        PasswordHasher oldHasher = new PasswordHasher(FAST_POLICY);
         String encoded = oldHasher.hash("upgrade-me");
-        PasswordHashPolicy upgradedPolicy = new PasswordHashPolicy(
-                new PasswordHashPolicy.Generation(1_024, 2, 1, 16, 24),
-                new PasswordHashPolicy.VerificationLimits(2_048, 3, 2, 32, 32));
-        PasswordHasher upgraded = PasswordHasher.withPolicy(upgradedPolicy);
+        PasswordHashPolicy upgradedPolicy = new PasswordHashPolicy(1_024, 2, 1, 16, 24);
+        PasswordHasher upgraded = new PasswordHasher(upgradedPolicy);
 
         assertTrue(upgraded.verify("upgrade-me", encoded));
         assertTrue(upgraded.needsRehash(encoded));
@@ -100,7 +85,7 @@ class PasswordHasherTest {
 
     @Test
     void mismatchReturnsFalseAndInvalidHashesUseClearCryptoFailures() {
-        PasswordHasher hasher = PasswordHasher.withPolicy(FAST_POLICY);
+        PasswordHasher hasher = new PasswordHasher(FAST_POLICY);
         String valid = hasher.hash("password");
 
         assertFalse(hasher.verify("different", valid));
@@ -117,26 +102,19 @@ class PasswordHasherTest {
                 () -> hasher.verify(
                         "password", valid.substring(0, valid.lastIndexOf('$') + 1) + "!!!!"));
         CryptoException overLimit = assertThrows(CryptoException.class,
-                () -> hasher.verify("password", valid.replace("m=1024", "m=2049")));
+                () -> hasher.verify("password", valid.replace("m=1024", "m=99999999")));
         assertTrue(overLimit.getMessage().contains("verification limit"));
         assertThrows(CryptoException.class,
-                () -> hasher.verify("password", valid.replace("t=1", "t=4")));
+                () -> hasher.verify("password", valid.replace("t=1", "t=1001")));
         assertThrows(CryptoException.class,
-                () -> hasher.verify("password", valid.replace("p=1", "p=3")));
+                () -> hasher.verify("password", valid.replace("p=1", "p=256")));
         assertThrows(CryptoException.class,
                 () -> hasher.verify("password", valid.replace("m=1024", "m=999999999999999")));
     }
 
     @Test
-    void base64LengthsAreRejectedBeforeLargeDecodeOrArgonAllocation() {
-        PasswordHasher hasher = PasswordHasher.withPolicy(FAST_POLICY);
-        String saltTooLarge = phc(1_024, 1, 1, new byte[33], new byte[16]);
-        String hashTooLarge = phc(1_024, 1, 1, new byte[8], new byte[33]);
-        String tooLong = "$argon2id$v=19$m=1024,t=1,p=1$" + "A".repeat(1_100) + "$AAAAAA";
-
-        assertThrows(CryptoException.class, () -> hasher.verify("x", saltTooLarge));
-        assertThrows(CryptoException.class, () -> hasher.verify("x", hashTooLarge));
-        assertThrows(CryptoException.class, () -> hasher.verify("x", tooLong));
+    void tooShortSaltOrHashIsRejected() {
+        PasswordHasher hasher = new PasswordHasher(FAST_POLICY);
         assertThrows(CryptoException.class,
                 () -> hasher.verify("x", phc(1_024, 1, 1, new byte[7], new byte[16])));
         assertThrows(CryptoException.class,
@@ -144,30 +122,16 @@ class PasswordHasherTest {
     }
 
     @Test
-    void policyRejectsGenerationThatCannotBeVerifiedAndInvalidArgonParameters() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new PasswordHashPolicy.Generation(7, 1, 1, 8, 16));
-        assertThrows(IllegalArgumentException.class,
-                () -> new PasswordHashPolicy.Generation(1_024, 1, 1, 7, 16));
-        assertThrows(IllegalArgumentException.class,
-                () -> new PasswordHashPolicy.Generation(1_024, 1, 1, 8, 3));
-        assertThrows(IllegalArgumentException.class,
-                () -> new PasswordHashPolicy(
-                        new PasswordHashPolicy.Generation(2_048, 1, 1, 8, 16),
-                        new PasswordHashPolicy.VerificationLimits(1_024, 2, 2, 32, 32)));
-        assertThrows(IllegalArgumentException.class,
-                () -> new PasswordHashPolicy.VerificationLimits(1, 1, 1, 7, 32));
-        assertThrows(IllegalArgumentException.class,
-                () -> new PasswordHashPolicy.VerificationLimits(1, 1, 1, 8, 3));
-        assertThrows(IllegalArgumentException.class,
-                () -> new PasswordHashPolicy(
-                        new PasswordHashPolicy.Generation(1_024, 1, 1, 8, 32),
-                        new PasswordHashPolicy.VerificationLimits(2_048, 3, 2, 32, 32, 64)));
+    void policyRejectsParametersBelowArgon2Minimums() {
+        assertThrows(IllegalArgumentException.class, () -> new PasswordHashPolicy(7, 1, 1, 8, 16));
+        assertThrows(IllegalArgumentException.class, () -> new PasswordHashPolicy(1_024, 0, 1, 8, 16));
+        assertThrows(IllegalArgumentException.class, () -> new PasswordHashPolicy(1_024, 1, 1, 7, 16));
+        assertThrows(IllegalArgumentException.class, () -> new PasswordHashPolicy(1_024, 1, 1, 8, 3));
     }
 
     @Test
     void oneHasherCanBeReusedConcurrently() throws Exception {
-        PasswordHasher hasher = PasswordHasher.withPolicy(FAST_POLICY);
+        PasswordHasher hasher = new PasswordHasher(FAST_POLICY);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<java.util.concurrent.Future<Boolean>> results = new ArrayList<>();
             for (int index = 0; index < 12; index++) {

@@ -29,31 +29,6 @@ public record BillDownloadInfo(
     private static final Pattern SHA1_VALUE = Pattern.compile("[0-9A-Fa-f]{40}");
 
     /**
-     * 校验账单摘要和下载地址；地址允许 HTTP 仅为支持环回测试服务。
-     *
-     * @throws IllegalArgumentException 摘要不是 SHA-1，或下载地址不是长度不超过 2048
-     *                                  字符的 HTTP/HTTPS 绝对地址时抛出
-     */
-    public BillDownloadInfo {
-        ValidationUtils.requireTrue("SHA1".equalsIgnoreCase(hashType),
-                "hashType must be SHA1");
-        ValidationUtils.requireTrue(hashValue != null
-                        && SHA1_VALUE.matcher(hashValue).matches(),
-                "hashValue must be a 40-character SHA-1 value");
-        ValidationUtils.requireNonNull(downloadUrl, "downloadUrl must not be null");
-        ValidationUtils.requireTrue(downloadUrl.isAbsolute()
-                        && ("https".equalsIgnoreCase(downloadUrl.getScheme())
-                        || "http".equalsIgnoreCase(downloadUrl.getScheme())),
-                "downloadUrl must be an absolute HTTP or HTTPS URI");
-        ValidationUtils.requireTrue(downloadUrl.getHost() != null
-                        && downloadUrl.getUserInfo() == null
-                        && downloadUrl.getRawFragment() == null
-                        && downloadUrl.toASCIIString().length() <= 2048,
-                "downloadUrl must contain a host, omit user information and fragments, "
-                        + "and not exceed 2048 characters");
-    }
-
-    /**
      * 返回不包含账单下载令牌的安全摘要。
      *
      * @return 已脱敏文本

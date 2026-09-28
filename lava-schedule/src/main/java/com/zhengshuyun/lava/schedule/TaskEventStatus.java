@@ -29,7 +29,7 @@ public enum TaskEventStatus {
      */
     FAILURE,
     /**
-     * occurrence 因并发策略、暂停、取消或 misfire 策略而未运行。
+     * occurrence 因上一次执行尚未结束（{@link ConcurrencyPolicy#SKIP_IF_RUNNING}）而未运行。
      */
     SKIPPED,
     /**

@@ -17,6 +17,7 @@
 package com.zhengshuyun.lava.pay.wechat.exception;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
+import com.zhengshuyun.lava.http.HttpException;
 import com.zhengshuyun.lava.http.HttpFailureKind;
 import org.jspecify.annotations.Nullable;
 
@@ -38,29 +39,18 @@ public final class WechatPayTransportException extends WechatPayException {
     private final @Nullable String method;
     /** 失败请求的已脱敏 URL。 */
     private final @Nullable String url;
-    /** 底层异常类型名。 */
-    private final @Nullable String causeType;
 
     /**
-     * 创建仅保留脱敏诊断信息的传输异常。
+     * 由底层 HTTP 传输失败创建异常，原始 {@link HttpException} 作为 cause 保留。
      *
-     * @param kind 稳定的传输失败类别
-     * @param method HTTP 方法
-     * @param url 已脱敏 URL
-     * @param causeType 底层异常类型名
+     * @param cause 底层 HTTP 传输失败
      */
-    public WechatPayTransportException(
-            HttpFailureKind kind,
-            @Nullable String method,
-            @Nullable String url,
-            @Nullable String causeType
-    ) {
-        super("微信支付传输失败: kind=" + ValidationUtils.requireNonNull(kind, "kind")
-                + (method == null ? "" : ", method=" + method));
-        this.kind = kind;
-        this.method = method;
-        this.url = url;
-        this.causeType = causeType;
+    public WechatPayTransportException(HttpException cause) {
+        super("微信支付传输失败: kind=" + ValidationUtils.requireNonNull(cause, "cause").getKind()
+                + (cause.getMethod() == null ? "" : ", method=" + cause.getMethod()), cause);
+        this.kind = cause.getKind();
+        this.method = cause.getMethod();
+        this.url = cause.getUrl();
     }
 
     /**
@@ -90,12 +80,4 @@ public final class WechatPayTransportException extends WechatPayException {
         return url;
     }
 
-    /**
-     * 返回底层异常类型名。
-     *
-     * @return 底层异常类型名；没有时为 {@code null}
-     */
-    public @Nullable String causeType() {
-        return causeType;
-    }
 }

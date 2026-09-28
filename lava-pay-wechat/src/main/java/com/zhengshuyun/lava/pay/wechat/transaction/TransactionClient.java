@@ -20,7 +20,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.pay.wechat.exception.WechatPaySecurityException;
 import com.zhengshuyun.lava.pay.wechat.exception.WechatPaySecurityFailure;
-import com.zhengshuyun.lava.pay.wechat.internal.WechatPayRuntime;
 import com.zhengshuyun.lava.pay.wechat.internal.WechatPayTransport;
 import com.zhengshuyun.lava.pay.wechat.internal.WechatPayValidationUtils;
 import org.jspecify.annotations.Nullable;
@@ -38,15 +37,15 @@ public final class TransactionClient {
     private static final String TRANSACTION_ID_PREFIX = "/v3/pay/transactions/id";
 
     /** 根客户端共享的签名传输层与关闭状态。 */
-    private final WechatPayRuntime runtime;
+    private final WechatPayTransport transport;
 
     /**
      * 由根客户端创建交易入口。
      *
-     * @param runtime 共享运行时
+     * @param transport 共享协议传输层
      */
-    public TransactionClient(WechatPayRuntime runtime) {
-        this.runtime = ValidationUtils.requireNonNull(runtime, "runtime");
+    public TransactionClient(WechatPayTransport transport) {
+        this.transport = ValidationUtils.requireNonNull(transport, "transport");
     }
 
     /**
@@ -56,7 +55,7 @@ public final class TransactionClient {
      * @return 已验签交易状态
      */
     public Transaction queryByOutTradeNo(String outTradeNo) {
-        WechatPayTransport transport = runtime.transport();
+        transport.ensureOpen();
         outTradeNo = WechatPayValidationUtils.requireOutTradeNo(outTradeNo);
         URI uri = transport.endpoint(OUT_TRADE_NO_PREFIX, outTradeNo, "");
         Transaction transaction = transport.get(
@@ -73,9 +72,8 @@ public final class TransactionClient {
      * @return 已验签交易状态
      */
     public Transaction queryByTransactionId(String transactionId) {
-        WechatPayTransport transport = runtime.transport();
-        transactionId = WechatPayValidationUtils.requireId(
-                transactionId, "transactionId", 32);
+        transport.ensureOpen();
+        transactionId = ValidationUtils.requireNotBlank(transactionId, "transactionId must not be blank");
         URI uri = transport.endpoint(TRANSACTION_ID_PREFIX, transactionId, "");
         Transaction transaction = transport.get(
                 transport.query(uri, "mchid", transport.mchid()), Transaction.class);
@@ -90,7 +88,7 @@ public final class TransactionClient {
      * @param outTradeNo 商户订单号
      */
     public void close(String outTradeNo) {
-        WechatPayTransport transport = runtime.transport();
+        transport.ensureOpen();
         outTradeNo = WechatPayValidationUtils.requireOutTradeNo(outTradeNo);
         URI uri = transport.endpoint(OUT_TRADE_NO_PREFIX, outTradeNo, "close");
         transport.postNoContent(uri, new ClosePayload(transport.mchid()));

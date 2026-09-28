@@ -50,27 +50,27 @@ class HttpSseTest {
     @Test
     void deliversEventsAndOneRemoteCloseTerminal() throws InterruptedException {
         CountDownLatch terminalLatch = new CountDownLatch(1);
-        List<HttpSseEvent> events = new CopyOnWriteArrayList<>();
+        List<SseEvent> events = new CopyOnWriteArrayList<>();
         AtomicInteger opens = new AtomicInteger();
         AtomicInteger terminals = new AtomicInteger();
-        AtomicReference<HttpSseTerminal> terminal = new AtomicReference<>();
+        AtomicReference<SseTerminal> terminal = new AtomicReference<>();
 
-        HttpSseSession session = client.openSse(
-                HttpRequest.get(server.baseUrl() + "/sse").build(), new HttpSseListener() {
+        SseSession session = client.openSse(
+                HttpRequest.get(server.baseUrl() + "/sse").build(), new SseListener() {
                     @Override
-                    public void onOpen(HttpSseSession current, HttpSseOpen open) {
+                    public void onOpen(SseSession current, int statusCode, HttpHeaders headers) {
                         opens.incrementAndGet();
-                        assertEquals(200, open.statusCode());
-                        assertEquals("text/event-stream", open.headers().get("Content-Type"));
+                        assertEquals(200, statusCode);
+                        assertEquals("text/event-stream", headers.get("Content-Type"));
                     }
 
                     @Override
-                    public void onEvent(HttpSseSession current, HttpSseEvent event) {
+                    public void onEvent(SseSession current, SseEvent event) {
                         events.add(event);
                     }
 
                     @Override
-                    public void onTerminal(HttpSseSession current, HttpSseTerminal value) {
+                    public void onTerminal(SseSession current, SseTerminal value) {
                         terminals.incrementAndGet();
                         terminal.set(value);
                         terminalLatch.countDown();
@@ -79,19 +79,20 @@ class HttpSseTest {
 
         assertTrue(terminalLatch.await(2, TimeUnit.SECONDS));
         assertEquals(1, opens.get());
-        assertEquals(List.of("first", "second"), events.stream().map(HttpSseEvent::data).toList());
-        assertEquals(HttpSseEvent.DEFAULT_TYPE, events.getFirst().type());
+        assertEquals(List.of("first", "second"), events.stream().map(SseEvent::data).toList());
+        assertEquals(SseEvent.DEFAULT_TYPE, events.getFirst().type());
         assertTrue(events.getFirst().isDefaultType());
         assertEquals("delta", events.get(1).type());
         assertEquals("2", events.get(1).id());
         assertEquals(1, terminals.get());
-        assertEquals(HttpSseTermination.REMOTE_CLOSED, terminal.get().termination());
+        assertEquals(SseTermination.REMOTE_CLOSED, terminal.get().termination());
         assertNull(terminal.get().failure());
-        assertEquals(HttpSseSession.State.REMOTE_CLOSED, session.getState());
+        assertEquals(terminal.get(), session.terminal().orElseThrow());
         assertTrue(session.isClosed());
         assertFalse(session.isCancelled());
         session.close();
         assertEquals(1, terminals.get());
+        assertFalse(session.isCancelled(), "自然结束后 close() 不能改写终态");
     }
 
     @Test
@@ -99,16 +100,16 @@ class HttpSseTest {
         CountDownLatch opened = new CountDownLatch(1);
         CountDownLatch terminalLatch = new CountDownLatch(1);
         AtomicInteger terminals = new AtomicInteger();
-        AtomicReference<HttpSseTerminal> terminal = new AtomicReference<>();
-        HttpSseSession session = client.openSse(
-                HttpRequest.get(server.baseUrl() + "/sse-hold").build(), new HttpSseListener() {
+        AtomicReference<SseTerminal> terminal = new AtomicReference<>();
+        SseSession session = client.openSse(
+                HttpRequest.get(server.baseUrl() + "/sse-hold").build(), new SseListener() {
                     @Override
-                    public void onOpen(HttpSseSession current, HttpSseOpen open) {
+                    public void onOpen(SseSession current, int statusCode, HttpHeaders headers) {
                         opened.countDown();
                     }
 
                     @Override
-                    public void onTerminal(HttpSseSession current, HttpSseTerminal value) {
+                    public void onTerminal(SseSession current, SseTerminal value) {
                         terminals.incrementAndGet();
                         terminal.set(value);
                         terminalLatch.countDown();
@@ -124,8 +125,7 @@ class HttpSseTest {
 
         assertTrue(terminalLatch.await(2, TimeUnit.SECONDS));
         assertEquals(1, terminals.get());
-        assertEquals(HttpSseTermination.CANCELLED, terminal.get().termination());
-        assertEquals(HttpSseSession.State.CANCELLED, session.getState());
+        assertEquals(SseTermination.CANCELLED, terminal.get().termination());
         assertTrue(session.isCancelled());
         server.releaseSse();
     }
@@ -133,47 +133,47 @@ class HttpSseTest {
     @Test
     void callbackExceptionCancelsSourceAndBecomesFailure() throws InterruptedException {
         CountDownLatch terminalLatch = new CountDownLatch(1);
-        AtomicReference<HttpSseTerminal> terminal = new AtomicReference<>();
-        HttpSseSession session = client.openSse(
-                HttpRequest.get(server.baseUrl() + "/sse").build(), new HttpSseListener() {
+        AtomicReference<SseTerminal> terminal = new AtomicReference<>();
+        SseSession session = client.openSse(
+                HttpRequest.get(server.baseUrl() + "/sse").build(), new SseListener() {
                     @Override
-                    public void onEvent(HttpSseSession current, HttpSseEvent event) {
+                    public void onEvent(SseSession current, SseEvent event) {
                         throw new IllegalStateException("listener bug");
                     }
 
                     @Override
-                    public void onTerminal(HttpSseSession current, HttpSseTerminal value) {
+                    public void onTerminal(SseSession current, SseTerminal value) {
                         terminal.set(value);
                         terminalLatch.countDown();
                     }
                 });
 
         assertTrue(terminalLatch.await(2, TimeUnit.SECONDS));
-        assertEquals(HttpSseSession.State.FAILED, session.getState());
-        assertEquals(HttpSseTermination.FAILED, terminal.get().termination());
-        HttpSseFailure failure = terminal.get().failure();
+        assertTrue(session.isClosed());
+        assertEquals(SseTermination.FAILED, terminal.get().termination());
+        SseFailure failure = terminal.get().failure();
         assertNotNull(failure);
         assertEquals(HttpFailureKind.IO, failure.kind());
-        assertInstanceOf(IllegalStateException.class, failure.throwable());
+        assertInstanceOf(IllegalStateException.class, failure.cause());
         assertFalse(failure.toString().contains("listener bug"));
     }
 
     @Test
     void handshakeFailureIncludesBoundedContext() throws InterruptedException {
         CountDownLatch terminalLatch = new CountDownLatch(1);
-        AtomicReference<HttpSseTerminal> terminal = new AtomicReference<>();
+        AtomicReference<SseTerminal> terminal = new AtomicReference<>();
         client.openSse(HttpRequest.get(server.baseUrl() + "/sse-failure").build(),
-                new HttpSseListener() {
+                new SseListener() {
                     @Override
-                    public void onTerminal(HttpSseSession current, HttpSseTerminal value) {
+                    public void onTerminal(SseSession current, SseTerminal value) {
                         terminal.set(value);
                         terminalLatch.countDown();
                     }
                 });
 
         assertTrue(terminalLatch.await(2, TimeUnit.SECONDS));
-        assertEquals(HttpSseTermination.FAILED, terminal.get().termination());
-        HttpSseFailure failure = terminal.get().failure();
+        assertEquals(SseTermination.FAILED, terminal.get().termination());
+        SseFailure failure = terminal.get().failure();
         assertNotNull(failure);
         assertEquals(HttpFailureKind.PROTOCOL, failure.kind());
         assertEquals(401, failure.statusCode());
@@ -186,16 +186,16 @@ class HttpSseTest {
     void clientCloseCancelsSessionAndRejectsEveryNewCall() throws InterruptedException {
         CountDownLatch opened = new CountDownLatch(1);
         CountDownLatch terminalLatch = new CountDownLatch(1);
-        AtomicReference<HttpSseTerminal> terminal = new AtomicReference<>();
-        HttpSseSession session = client.openSse(
-                HttpRequest.get(server.baseUrl() + "/sse-hold").build(), new HttpSseListener() {
+        AtomicReference<SseTerminal> terminal = new AtomicReference<>();
+        SseSession session = client.openSse(
+                HttpRequest.get(server.baseUrl() + "/sse-hold").build(), new SseListener() {
                     @Override
-                    public void onOpen(HttpSseSession current, HttpSseOpen open) {
+                    public void onOpen(SseSession current, int statusCode, HttpHeaders headers) {
                         opened.countDown();
                     }
 
                     @Override
-                    public void onTerminal(HttpSseSession current, HttpSseTerminal value) {
+                    public void onTerminal(SseSession current, SseTerminal value) {
                         terminal.set(value);
                         terminalLatch.countDown();
                         throw new IllegalStateException("terminal callback is contained");
@@ -204,26 +204,26 @@ class HttpSseTest {
         assertTrue(opened.await(2, TimeUnit.SECONDS));
         client.close();
         assertTrue(terminalLatch.await(2, TimeUnit.SECONDS));
-        assertEquals(HttpSseTermination.CANCELLED, terminal.get().termination());
-        assertEquals(HttpSseSession.State.CANCELLED, session.getState());
+        assertEquals(SseTermination.CANCELLED, terminal.get().termination());
+        assertTrue(session.isCancelled());
 
         HttpRequest request = HttpRequest.get(server.baseUrl() + "/ok").build();
         assertThrows(IllegalStateException.class, () -> client.send(request));
         assertThrows(IllegalStateException.class, () -> client.openStream(request));
         assertThrows(IllegalStateException.class,
-                () -> client.openSse(request, new HttpSseListener() {
+                () -> client.openSse(request, new SseListener() {
                 }));
     }
 
     @Test
     void validatesTerminalInvariantsAndNormalizesDirectEvents() {
-        HttpSseEvent event = new HttpSseEvent(null, " ", "data");
-        assertEquals(HttpSseEvent.DEFAULT_TYPE, event.type());
+        SseEvent event = new SseEvent(null, " ", "data");
+        assertEquals(SseEvent.DEFAULT_TYPE, event.type());
         assertThrows(IllegalArgumentException.class,
-                () -> new HttpSseTerminal(HttpSseTermination.FAILED, null));
+                () -> new SseTerminal(SseTermination.FAILED, null));
         assertThrows(IllegalArgumentException.class,
-                () -> new HttpSseTerminal(HttpSseTermination.CANCELLED,
-                        new HttpSseFailure(HttpFailureKind.IO, null, null, null, null)));
-        assertThrows(IllegalArgumentException.class, () -> new HttpSseTerminal(null, null));
+                () -> new SseTerminal(SseTermination.CANCELLED,
+                        new SseFailure(HttpFailureKind.IO, null, null, null, null)));
+        assertThrows(IllegalArgumentException.class, () -> new SseTerminal(null, null));
     }
 }

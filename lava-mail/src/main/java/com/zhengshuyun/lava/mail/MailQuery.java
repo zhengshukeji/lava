@@ -56,7 +56,7 @@ public record MailQuery(
      */
     public MailQuery {
         if (folder != null) {
-            folder = PasswordCredential.requireNonBlankWithoutControls(folder, "folder");
+            folder = MailValidationUtils.requireNonBlankWithoutControls(folder, "folder");
         }
         if (pageSize < 1 || pageSize > 1_000) {
             throw new IllegalArgumentException("pageSize must be between 1 and 1000");
@@ -66,10 +66,10 @@ public record MailQuery(
             throw new IllegalArgumentException("receivedAfter must be before receivedBefore");
         }
         if (fromContains != null) {
-            fromContains = PasswordCredential.requireNonBlank(fromContains, "fromContains");
+            fromContains = MailValidationUtils.requireNonBlank(fromContains, "fromContains");
         }
         if (subjectContains != null) {
-            subjectContains = PasswordCredential.requireNonBlank(subjectContains, "subjectContains");
+            subjectContains = MailValidationUtils.requireNonBlank(subjectContains, "subjectContains");
         }
     }
 

@@ -20,15 +20,15 @@ import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import org.jspecify.annotations.Nullable;
 
 /**
- * 不暴露原始异常消息的 SSE 失败快照。
+ * SSE 会话失败详情。
  *
  * @param kind         稳定的失败分类
- * @param causeType    原始异常的类型名
+ * @param cause        原始异常；服务端返回非 2xx 等协议级失败时为 null
  * @param statusCode   服务端已响应时的 HTTP 状态码
- * @param headers      服务端已响应时的已脱敏响应头
- * @param responseBody 有界失败响应正文
+ * @param headers      服务端已响应时的响应头
+ * @param responseBody 有界的失败响应正文
  */
-public record SseFailure(HttpFailureKind kind, @Nullable String causeType,
+public record SseFailure(HttpFailureKind kind, @Nullable Throwable cause,
                          @Nullable Integer statusCode, @Nullable HttpHeaders headers,
                          @Nullable String responseBody) {
     public SseFailure {
@@ -36,30 +36,15 @@ public record SseFailure(HttpFailureKind kind, @Nullable String causeType,
     }
 
     /**
-     * 从兼容 API 的失败对象创建不携带 Throwable 的安全快照。
+     * 返回不含响应正文的调试表示，响应头按 {@link HttpHeaders#toString()} 脱敏。
      *
-     * @param failure 兼容 API 失败对象；null 表示协议级失败
-     * @return 通用失败快照
-     */
-    static SseFailure from(@Nullable HttpSseFailure failure) {
-        if (failure == null) {
-            return new SseFailure(HttpFailureKind.PROTOCOL, null, null, null, null);
-        }
-        Throwable throwable = failure.throwable();
-        return new SseFailure(failure.kind(), throwable == null ? null : throwable.getClass().getName(),
-                failure.statusCode(), failure.headers() == null ? null : failure.headers().redacted(),
-                failure.responseBody());
-    }
-
-    /**
-     * 返回不泄露响应正文的调试表示。
-     *
-     * @return 已脱敏的失败摘要
+     * @return 失败摘要
      */
     @Override
     public String toString() {
-        return "SseFailure[kind=" + kind + ", causeType=" + causeType
+        return "SseFailure[kind=" + kind
+                + ", cause=" + (cause == null ? null : cause.getClass().getName())
                 + ", statusCode=" + statusCode + ", headers=" + headers
-                + ", responseBody=[REDACTED]]";
+                + ", responseBody=" + (responseBody == null ? null : "[REDACTED]") + ']';
     }
 }

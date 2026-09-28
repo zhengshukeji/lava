@@ -33,7 +33,7 @@ public record MailCursor(String folder, long uidValidity, long beforeUid) {
      * @param beforeUid   UID 排他上界
      */
     public MailCursor {
-        folder = PasswordCredential.requireNonBlankWithoutControls(folder, "folder");
+        folder = MailValidationUtils.requireNonBlankWithoutControls(folder, "folder");
         if (!MailMessageId.validUid(uidValidity) || !MailMessageId.validUid(beforeUid)) {
             throw new IllegalArgumentException(
                     "uidValidity and beforeUid must be unsigned 32-bit positive values");

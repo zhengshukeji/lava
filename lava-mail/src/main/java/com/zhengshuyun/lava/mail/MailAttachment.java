@@ -36,8 +36,8 @@ public record MailAttachment(String fileName, String contentType, byte[] content
      * @param content     附件字节内容
      */
     public MailAttachment {
-        fileName = PasswordCredential.requireNonBlank(fileName, "fileName");
-        contentType = PasswordCredential.requireNonBlank(contentType, "contentType");
+        fileName = MailValidationUtils.requireNonBlank(fileName, "fileName");
+        contentType = MailValidationUtils.requireNonBlank(contentType, "contentType");
         ValidationUtils.requireNonNull(content, "content");
         if (fileName.codePoints().anyMatch(Character::isISOControl)
                 || contentType.codePoints().anyMatch(Character::isISOControl)) {

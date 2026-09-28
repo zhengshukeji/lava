@@ -77,8 +77,7 @@ public final class ListApplicationsRequest {
      */
     private static void requirePaging(@Nullable Integer limit, @Nullable Integer skip) {
         if (limit != null) {
-            ValidationUtils.requireTrue(limit >= 1 && limit <= 100,
-                    "limit must be between 1 and 100");
+            ValidationUtils.requireTrue(limit >= 1, "limit must be positive");
         }
         if (skip != null) {
             ValidationUtils.requireTrue(skip >= 0, "skip must not be negative");

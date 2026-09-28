@@ -5,6 +5,7 @@
 
 package com.zhengshuyun.lava.pay.alipay.exception;
 
+import com.zhengshuyun.lava.http.HttpException;
 import com.zhengshuyun.lava.http.HttpFailureKind;
 import org.jspecify.annotations.Nullable;
 
@@ -20,29 +21,18 @@ public final class AlipayTransportException extends AlipayException {
     private final @Nullable String method;
     /** 失败请求地址。 */
     private final @Nullable String url;
-    /** 底层异常类型。 */
-    private final @Nullable String causeType;
 
     /**
-     * 将 Lava HTTP 传输失败转换为支付宝领域异常。
+     * 将 Lava HTTP 传输失败转换为支付宝领域异常，原始异常作为 cause 保留。
      *
-     * @param kind      失败类型
-     * @param method    HTTP 方法
-     * @param url       请求地址
-     * @param causeType 底层异常类型
+     * @param cause 底层 HTTP 传输失败
      */
-    public AlipayTransportException(
-            HttpFailureKind kind,
-            @Nullable String method,
-            @Nullable String url,
-            @Nullable String causeType
-    ) {
-        super("支付宝网关传输失败：" + kind);
-        this.kind = kind;
+    public AlipayTransportException(HttpException cause) {
+        super("支付宝网关传输失败：" + cause.getKind(), cause);
+        this.kind = cause.getKind();
         statusCode = null;
-        this.method = method;
-        this.url = url;
-        this.causeType = causeType;
+        this.method = cause.getMethod();
+        this.url = cause.getUrl();
     }
 
     /**
@@ -56,7 +46,20 @@ public final class AlipayTransportException extends AlipayException {
         this.statusCode = statusCode;
         method = null;
         url = null;
-        causeType = null;
+    }
+
+    /**
+     * 表示支付宝网关返回了非成功 HTTP 状态，且错误响应无法结构化解析。
+     *
+     * @param statusCode HTTP 状态码
+     * @param cause      解析错误响应时的底层异常
+     */
+    public AlipayTransportException(int statusCode, Throwable cause) {
+        super("支付宝网关返回非成功 HTTP 状态：" + statusCode, cause);
+        kind = null;
+        this.statusCode = statusCode;
+        method = null;
+        url = null;
     }
 
     /**
@@ -93,14 +96,5 @@ public final class AlipayTransportException extends AlipayException {
      */
     public @Nullable String url() {
         return url;
-    }
-
-    /**
-     * 获取底层异常类型。
-     *
-     * @return 底层异常类型；没有时为 {@code null}
-     */
-    public @Nullable String causeType() {
-        return causeType;
     }
 }

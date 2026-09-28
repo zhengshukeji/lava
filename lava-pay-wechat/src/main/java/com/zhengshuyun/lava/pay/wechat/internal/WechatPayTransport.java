@@ -29,21 +29,20 @@ import java.net.URI;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.time.Clock;
-import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
-import java.util.regex.Pattern;
 
 /**
  * 微信支付 APIv3 的统一签名、发送、验签和错误解析传输层。
  *
  * <p>该类型仅由根客户端及各产品入口共享使用，集中保证请求正文签名与发送一致、所有业务响应
- * 先验签后解析，并将底层 HTTP 失败转换为微信支付领域异常。它不拥有 HTTP 客户端的生命周期。</p>
+ * 先验签后解析，并将底层 HTTP 失败转换为微信支付领域异常。传输层同时持有根客户端的关闭状态，
+ * 关闭时只关闭自己创建的 HTTP 客户端。</p>
  */
-public final class WechatPayTransport {
+public final class WechatPayTransport implements AutoCloseable {
     /** 无请求正文时参与签名和发送的共享空字节数组。 */
     private static final byte[] EMPTY_BODY = new byte[0];
     /** 下载账单失败响应允许读取的最大字节数，防止错误正文无限占用内存。 */
@@ -51,10 +50,6 @@ public final class WechatPayTransport {
     /** 微信支付账单下载链接允许使用的官方 API 主、备域名。 */
     private static final Set<String> OFFICIAL_API_HOSTS = Set.of(
             "api.mch.weixin.qq.com", "api2.mch.weixin.qq.com");
-    /** 微信支付账单日期和业务时间使用的中国标准时区。 */
-    private static final ZoneId WECHAT_PAY_ZONE = ZoneId.of("Asia/Shanghai");
-    /** 微信支付公钥 ID 的固定格式。 */
-    private static final Pattern PUBLIC_KEY_ID = Pattern.compile("PUB_KEY_ID_[0-9]+");
 
     /** 当前普通商户号，写入请求签名和需携带商户号的业务参数。 */
     private final String mchid;
@@ -68,8 +63,12 @@ public final class WechatPayTransport {
     private final PublicKey wechatPayPublicKey;
     /** APIv3 密钥的内部副本，仅用于解密回调通知资源。 */
     private final byte[] apiV3Key;
-    /** 仅用于发送请求的 HTTP 客户端；关闭责任由共享运行时或调用方承担。 */
+    /** 发送请求的 HTTP 客户端。 */
     private final HttpClient httpClient;
+    /** 是否由本传输层负责关闭 HTTP 客户端；调用方借入的客户端为 false。 */
+    private final boolean ownsHttpClient;
+    /** 根客户端关闭状态，保证关闭幂等并拒绝后续调用。 */
+    private final AtomicBoolean closed = new AtomicBoolean();
     /** 已校验的微信支付 API 根地址，用于构造业务接口端点。 */
     private final URI apiBaseUrl;
     /** 请求签名与消息时效校验共用的时钟。 */
@@ -80,7 +79,7 @@ public final class WechatPayTransport {
     private final JsonCodec jsonCodec;
 
     /**
-     * 创建内部传输层。调用方负责保证配置已完成校验。
+     * 创建内部传输层；参数已由根客户端构建器校验。
      *
      * @param mchid 商户号
      * @param merchantSerialNo 商户 API 证书序列号
@@ -89,6 +88,7 @@ public final class WechatPayTransport {
      * @param wechatPayPublicKey 微信支付公钥
      * @param apiV3Key APIv3 密钥
      * @param httpClient HTTP 客户端
+     * @param ownsHttpClient 是否由本传输层负责关闭 HTTP 客户端
      * @param apiBaseUrl API 根地址
      * @param clock 签名和验签时钟
      * @param nonceSupplier 请求随机串生成器
@@ -102,35 +102,25 @@ public final class WechatPayTransport {
             PublicKey wechatPayPublicKey,
             byte[] apiV3Key,
             HttpClient httpClient,
+            boolean ownsHttpClient,
             URI apiBaseUrl,
             Clock clock,
             Supplier<String> nonceSupplier,
             JsonCodec jsonCodec
     ) {
-        this.mchid = requireHeaderValue(
-                WechatPayValidationUtils.requireMchid(mchid),
-                "mchid"
-        );
-        this.merchantSerialNo = requireMerchantSerialNo(merchantSerialNo);
-        this.merchantPrivateKey = WechatPayPemUtils.requirePrivateKey(
-                merchantPrivateKey
-        );
-        this.wechatPayPublicKeyId = requirePublicKeyId(wechatPayPublicKeyId);
-        this.wechatPayPublicKey = WechatPayPemUtils.requirePublicKey(
-                wechatPayPublicKey
-        );
-        this.apiV3Key = requireApiV3Key(apiV3Key);
-        this.httpClient = requireSafeHttpClient(httpClient);
-        this.apiBaseUrl = WechatPayValidationUtils.requireApiBaseUrl(apiBaseUrl);
-        this.clock = ValidationUtils.requireNonNull(clock, "clock must not be null");
-        this.nonceSupplier = ValidationUtils.requireNonNull(
-                nonceSupplier,
-                "nonceSupplier must not be null"
-        );
-        this.jsonCodec = ValidationUtils.requireNonNull(
-                jsonCodec,
-                "jsonCodec must not be null"
-        );
+        // 参数已由根客户端构建器校验；APIv3 密钥复制一份，关闭时清零不影响构建器
+        this.mchid = mchid;
+        this.merchantSerialNo = merchantSerialNo;
+        this.merchantPrivateKey = merchantPrivateKey;
+        this.wechatPayPublicKeyId = wechatPayPublicKeyId;
+        this.wechatPayPublicKey = wechatPayPublicKey;
+        this.apiV3Key = apiV3Key.clone();
+        this.httpClient = httpClient;
+        this.ownsHttpClient = ownsHttpClient;
+        this.apiBaseUrl = apiBaseUrl;
+        this.clock = clock;
+        this.nonceSupplier = nonceSupplier;
+        this.jsonCodec = jsonCodec;
     }
 
     /**
@@ -140,15 +130,6 @@ public final class WechatPayTransport {
      */
     public String mchid() {
         return mchid;
-    }
-
-    /**
-     * 返回微信支付业务时区下的当前日期。
-     *
-     * @return 中国标准时区当前日期
-     */
-    public LocalDate currentDate() {
-        return LocalDate.ofInstant(clock.instant(), WECHAT_PAY_ZONE);
     }
 
     /**
@@ -200,6 +181,7 @@ public final class WechatPayTransport {
      * @return 已验签响应模型
      */
     public <T> T get(URI uri, Class<T> responseType) {
+        ensureOpen();
         return send(
                 HttpMethod.GET,
                 uri,
@@ -218,6 +200,7 @@ public final class WechatPayTransport {
      * @return 已验签响应模型
      */
     public <T> T post(URI uri, Object requestBody, Class<T> responseType) {
+        ensureOpen();
         return send(
                 HttpMethod.POST,
                 uri,
@@ -233,19 +216,20 @@ public final class WechatPayTransport {
      * @param requestBody 请求模型
      */
     public void postNoContent(URI uri, Object requestBody) {
+        ensureOpen();
         // 1. 先编码一次并复用同一正文完成签名和发送，避免二次序列化导致签名不一致。
         byte[] body = encode(requestBody);
         HttpResponse response = execute(HttpMethod.POST, uri, body);
-        byte[] responseBody = response.getBodyAsBytes();
+        byte[] responseBody = response.bodyBytes();
 
         // 2. 失败响应按签名情况结构化；成功响应必须先验证来源，再根据 HTTP 语义处理结果。
         if (!response.isSuccessful()) {
-            throw errorResponse(response.statusCode(), response.getHeaders(), responseBody);
+            throw errorResponse(response.statusCode(), response.headers(), responseBody);
         }
-        verify(response.getHeaders(), responseBody);
+        verify(response.headers(), responseBody);
 
         // 3. 关单接口的成功语义固定为 204 且无正文，拒绝异常成功响应以防协议变化被静默忽略。
-        if (response.statusCode() != 204 || response.getContentLength() != 0) {
+        if (response.statusCode() != 204 || response.contentLength() != 0) {
             throw new WechatPayProtocolException("微信支付关单响应必须为 204 空正文");
         }
     }
@@ -257,6 +241,7 @@ public final class WechatPayTransport {
      * @return 调用方负责关闭的下载流
      */
     public HttpStream openDownload(URI uri) {
+        ensureOpen();
         // 1. 下载地址来自已验签的申请账单响应，仍限制来源以防被业务代码替换为任意地址。
         requireTrustedDownloadUrl(uri);
         HttpRequest request = signedRequest(HttpMethod.GET, uri, EMPTY_BODY);
@@ -264,7 +249,7 @@ public final class WechatPayTransport {
         try {
             stream = httpClient.openStream(request);
         } catch (HttpException exception) {
-            throw transportException(exception);
+            throw new WechatPayTransportException(exception);
         }
         if (stream.statusCode() == 200) {
             // 2. 成功流直接交给调用方读取和关闭，避免在传输层缓冲整个账单文件。
@@ -286,8 +271,7 @@ public final class WechatPayTransport {
             try {
                 body = stream.body().readNBytes(MAX_DOWNLOAD_ERROR_BYTES + 1);
             } catch (IOException exception) {
-                throw new WechatPayFileException(WechatPayFileFailure.IO,
-                        exception.getClass().getName());
+                throw new WechatPayFileException(WechatPayFileFailure.IO, exception);
             }
             if (body.length > MAX_DOWNLOAD_ERROR_BYTES) {
                 throw new WechatPayProtocolException("微信支付账单下载错误响应超过大小限制");
@@ -303,6 +287,7 @@ public final class WechatPayTransport {
      * @param body 原始正文
      */
     public void verify(HttpHeaders headers, byte[] body) {
+        ensureOpen();
         WechatPayCryptoUtils.verifyMessage(
                 headers,
                 body,
@@ -327,6 +312,7 @@ public final class WechatPayTransport {
             @Nullable String associatedData,
             String ciphertext
     ) {
+        ensureOpen();
         return WechatPayCryptoUtils.decrypt(
                 apiV3Key,
                 algorithm,
@@ -337,10 +323,27 @@ public final class WechatPayTransport {
     }
 
     /**
-     * 清除当前客户端持有的 APIv3 密钥副本。
+     * 确保根客户端仍处于可用状态。
+     *
+     * @throws IllegalStateException 根客户端已经关闭
      */
-    public void clearSecret() {
-        Arrays.fill(apiV3Key, (byte) 0);
+    public void ensureOpen() {
+        if (closed.get()) {
+            throw new IllegalStateException("WechatPayClient is closed");
+        }
+    }
+
+    /**
+     * 关闭传输层：清零 APIv3 密钥副本，并仅关闭本传输层拥有的 HTTP 客户端；可重复调用。
+     */
+    @Override
+    public void close() {
+        if (closed.compareAndSet(false, true)) {
+            Arrays.fill(apiV3Key, (byte) 0);
+            if (ownsHttpClient) {
+                httpClient.close();
+            }
+        }
     }
 
     /**
@@ -361,13 +364,13 @@ public final class WechatPayTransport {
     ) {
         byte[] body = requestBody == null ? EMPTY_BODY : encode(requestBody);
         HttpResponse response = execute(method, uri, body);
-        byte[] responseBody = response.getBodyAsBytes();
+        byte[] responseBody = response.bodyBytes();
 
         // 1. 失败响应按签名情况结构化；成功响应必须先验证来源，不能让未验签数据进入业务判断。
         if (!response.isSuccessful()) {
-            throw errorResponse(response.statusCode(), response.getHeaders(), responseBody);
+            throw errorResponse(response.statusCode(), response.headers(), responseBody);
         }
-        verify(response.getHeaders(), responseBody);
+        verify(response.headers(), responseBody);
         if (response.statusCode() != 200) {
             throw new WechatPayProtocolException(
                     "微信支付 JSON API 成功响应必须为 200"
@@ -381,7 +384,7 @@ public final class WechatPayTransport {
         try {
             return jsonCodec.read(responseBody, responseType);
         } catch (JsonException | IllegalArgumentException exception) {
-            throw new WechatPayProtocolException("微信支付成功响应不是预期的 JSON 结构");
+            throw new WechatPayProtocolException("微信支付成功响应不是预期的 JSON 结构", exception);
         }
     }
 
@@ -399,7 +402,7 @@ public final class WechatPayTransport {
         try {
             return httpClient.send(request);
         } catch (HttpException exception) {
-            throw transportException(exception);
+            throw new WechatPayTransportException(exception);
         }
     }
 
@@ -414,16 +417,12 @@ public final class WechatPayTransport {
     private HttpRequest signedRequest(HttpMethod method, URI uri, byte[] body) {
         // 1. 每个请求使用独立时间戳和随机串，构造微信支付要求的授权签名。
         long timestamp = clock.instant().getEpochSecond();
-        String nonce = requireHeaderValue(nonceSupplier.get(), "nonce");
-        ValidationUtils.requireTrue(
-                nonce.length() <= 32,
-                "nonce must not exceed 32 characters"
-        );
+        String nonce = nonceSupplier.get();
         String authorization = WechatPayCryptoUtils.authorization(
                 mchid,
                 merchantSerialNo,
                 merchantPrivateKey,
-                method.getName(),
+                method.name(),
                 uri,
                 body,
                 timestamp,
@@ -500,7 +499,7 @@ public final class WechatPayTransport {
         try {
             return jsonCodec.writeBytes(value);
         } catch (JsonException exception) {
-            throw new WechatPayProtocolException("无法编码微信支付请求 JSON");
+            throw new WechatPayProtocolException("无法编码微信支付请求 JSON", exception);
         }
     }
 
@@ -543,173 +542,34 @@ public final class WechatPayTransport {
         try {
             error = jsonCodec.read(body, ApiErrorPayload.class);
         } catch (JsonException exception) {
-            throw new WechatPayProtocolException("微信支付错误响应不是预期的 JSON 结构");
+            throw new WechatPayProtocolException("微信支付错误响应不是预期的 JSON 结构", exception);
         }
-        if (error.code == null || error.code.isBlank() || error.message == null) {
+        if (error.code() == null || error.code().isBlank() || error.message() == null) {
             throw new WechatPayProtocolException("微信支付错误响应缺少 code 或 message");
         }
 
-        // 2. 将可选明细和请求 ID 一并保留，便于调用方定位具体字段及向微信支付排障。
-        WechatPayApiErrorDetail detail = error.detail == null ? null
-                : new WechatPayApiErrorDetail(
-                        error.detail.field,
-                        error.detail.value,
-                        error.detail.issue,
-                        error.detail.location
-                );
+        // 2. 将可选明细和请求 ID 一并保留，便于调用方定位具体字段及向微信支付排障
         return new WechatPayApiException(
                 statusCode,
                 verified,
-                error.code,
-                error.message,
-                detail,
+                error.code(),
+                error.message(),
+                error.detail(),
                 headers.get(WechatPayCryptoUtils.HEADER_REQUEST_ID)
         );
     }
 
     /**
-     * 将 Lava HTTP 失败转换为脱敏微信支付传输异常。
+     * 微信支付错误响应正文。
      *
-     * @param exception 底层 HTTP 异常
-     * @return 仅保留稳定失败类别与脱敏请求信息的领域异常
+     * @param code    错误码；缺失时视为协议失败
+     * @param message 错误描述，可能含业务上下文，不自动写入异常消息
+     * @param detail  可选的字段级错误明细
      */
-    private static WechatPayTransportException transportException(HttpException exception) {
-        return new WechatPayTransportException(
-                exception.getKind(),
-                exception.getMethod(),
-                exception.getUrl(),
-                exception.getTransportCauseType()
-        );
-    }
-
-    /**
-     * 校验 HTTP 鉴权引号参数不含空白、引号或转义字符。
-     *
-     * @param value 待写入鉴权请求头的文本
-     * @param name 用于报错的参数名称
-     * @return 校验通过的原文本
-     */
-    private static String requireHeaderValue(String value, String name) {
-        ValidationUtils.requireNotBlank(value, name + " must not be blank");
-        ValidationUtils.requireTrue(
-                value.codePoints().noneMatch(
-                        codePoint -> codePoint <= 0x20
-                                || codePoint == '"'
-                                || codePoint == '\\'
-                                || codePoint == 0x7F
-                ),
-                name + " contains a character invalid in an HTTP quoted value"
-        );
-        return value;
-    }
-
-    /**
-     * 校验微信支付公钥 ID 符合 {@code PUB_KEY_ID_}加数字的鉴权格式。
-     *
-     * @param value 微信支付公钥 ID
-     * @return 校验通过的原值
-     */
-    private static String requirePublicKeyId(String value) {
-        value = requireHeaderValue(value, "wechatPayPublicKeyId");
-        ValidationUtils.requireTrue(
-                PUBLIC_KEY_ID.matcher(value).matches(),
-                "wechatPayPublicKeyId format is invalid"
-        );
-        return value;
-    }
-
-    /**
-     * 校验商户 API 证书序列号为十六进制鉴权参数，并统一转为大写。
-     *
-     * @param value 商户 API 证书序列号
-     * @return 大写十六进制序列号
-     */
-    private static String requireMerchantSerialNo(String value) {
-        value = requireHeaderValue(value, "merchantSerialNo");
-        ValidationUtils.requireTrue(
-                value.codePoints().allMatch(
-                        codePoint -> codePoint >= '0' && codePoint <= '9'
-                                || codePoint >= 'A' && codePoint <= 'F'
-                                || codePoint >= 'a' && codePoint <= 'f'
-                ),
-                "merchantSerialNo must contain hexadecimal characters only"
-        );
-        return value.toUpperCase(Locale.ROOT);
-    }
-
-    /**
-     * 校验并复制 32 字节 ASCII 字母数字 APIv3 密钥，避免外部修改内部密钥。
-     *
-     * @param value 调用方持有的 APIv3 密钥字节
-     * @return 传输层独占的密钥副本
-     */
-    private static byte[] requireApiV3Key(byte[] value) {
-        ValidationUtils.requireNonNull(value, "apiV3Key must not be null");
-        ValidationUtils.requireTrue(
-                value.length == 32,
-                "apiV3Key must contain exactly 32 bytes"
-        );
-        for (byte character : value) {
-            int unsigned = Byte.toUnsignedInt(character);
-            ValidationUtils.requireTrue(
-                    unsigned >= '0' && unsigned <= '9'
-                            || unsigned >= 'A' && unsigned <= 'Z'
-                            || unsigned >= 'a' && unsigned <= 'z',
-                    "apiV3Key must contain ASCII letters and digits only"
-            );
-        }
-        return value.clone();
-    }
-
-    /**
-     * 校验借入 HTTP 客户端不会隐式重试或跟随重定向，保证每个签名只发送一次且不被转发。
-     *
-     * @param value 待借入的 HTTP 客户端
-     * @return 已关闭连接失败重试和所有重定向的原客户端
-     */
-    private static HttpClient requireSafeHttpClient(HttpClient value) {
-        ValidationUtils.requireNonNull(value, "httpClient must not be null");
-        ValidationUtils.requireTrue(
-                !OkHttpInterop.unwrap(value).retryOnConnectionFailure(),
-                "httpClient must disable connection failure retries"
-        );
-        ValidationUtils.requireTrue(
-                !OkHttpInterop.unwrap(value).followRedirects(),
-                "httpClient must disable redirects"
-        );
-        ValidationUtils.requireTrue(
-                !OkHttpInterop.unwrap(value).followSslRedirects(),
-                "httpClient must disable cross-protocol redirects"
-        );
-        return value;
-    }
-
-    /** 承载已验签 API 错误响应的错误码、描述与可选字段明细。 */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private static final class ApiErrorPayload {
-        /** 微信支付 API 错误码；JSON 缺失时为 {@code null} 并视为协议失败。 */
-        public @Nullable String code;
-
-        /** 微信支付错误描述，可能含业务上下文，不自动写入异常消息。 */
-        public @Nullable String message;
-
-        /** 可选的请求参数错误明细；微信支付未返回时为 {@code null}。 */
-        public @Nullable ApiErrorDetailPayload detail;
-    }
-
-    /** 承载 API 错误响应中可选的字段级错误定位信息。 */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private static final class ApiErrorDetailPayload {
-        /** 发生错误的请求字段路径；微信支付未返回时为 {@code null}。 */
-        public @Nullable String field;
-
-        /** 导致错误的字段值，可能敏感，不应写入不受控日志。 */
-        public @Nullable String value;
-
-        /** 字段未通过校验的原因；微信支付未返回时为 {@code null}。 */
-        public @Nullable String issue;
-
-        /** 错误字段所在的请求区域；微信支付未返回时为 {@code null}。 */
-        public @Nullable String location;
+    private record ApiErrorPayload(
+            @Nullable String code,
+            @Nullable String message,
+            @Nullable WechatPayApiErrorDetail detail) {
     }
 }

@@ -147,6 +147,7 @@ class DefaultOAuth2TokenClientTest {
                     () -> exchange.client.fetchAccessToken(credential(), CLOCK));
             assertEquals(MailFailureKind.TLS, failure.kind());
             assertSafe(failure);
+            assertNotNull(failure.getCause());
         }
         try (Exchange exchange = Exchange.fail(new UnknownHostException("refresh-secret"))) {
             MailException failure = assertThrows(
@@ -181,7 +182,8 @@ class DefaultOAuth2TokenClientTest {
     }
 
     private static void assertSafe(MailException failure) {
-        String diagnostic = failure + " " + failure.causeType();
+        // 本库生成的消息不得出现凭证；底层异常作为 cause 原样保留，便于排障
+        String diagnostic = failure.toString();
         assertFalse(diagnostic.contains("refresh-secret"));
         assertFalse(diagnostic.contains("access-secret"));
         assertFalse(diagnostic.contains("client-secret"));

@@ -17,196 +17,95 @@
 package com.zhengshuyun.lava.pay.wechat.internal;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
-import org.jspecify.annotations.Nullable;
 
-import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
-import java.util.regex.Pattern;
+import java.util.Set;
 
 /**
- * 微信支付公开模型共用的字段校验工具。
+ * 微信支付参数校验。
+ *
+ * <p>只校验必填项和本 SDK 无法正确发出请求的情况；字段格式、长度等业务规则由微信支付服务端
+ * 校验并返回明确错误码，客户端不重复实现，避免平台规则调整后两边不一致。</p>
  */
 public final class WechatPayValidationUtils {
-    /**
-     * 微信支付协议使用的 {@code OUT_TRADE_NO} 常量。
-     */
-    private static final Pattern OUT_TRADE_NO = Pattern.compile("[0-9A-Za-z_\\-|*]{6,32}");
-    /**
-     * 微信支付协议使用的 {@code OUT_REFUND_NO} 常量。
-     */
-    private static final Pattern OUT_REFUND_NO = Pattern.compile("[0-9A-Za-z_\\-|*@]{1,64}");
-    /**
-     * 微信支付协议使用的 {@code MERCHANT_GOODS_ID} 常量。
-     */
-    private static final Pattern MERCHANT_GOODS_ID = Pattern.compile("[0-9A-Za-z_-]{1,32}");
 
-    /** 禁止实例化微信支付校验工具。 */
+    /**
+     * 微信支付官方 API 主、备域名。
+     */
+    private static final Set<String> OFFICIAL_API_HOSTS = Set.of("api.mch.weixin.qq.com", "api2.mch.weixin.qq.com");
+
     private WechatPayValidationUtils() {
         throw new UnsupportedOperationException("Utility class");
     }
 
     /**
-     * 校验商户号。
+     * 校验商户号非空白。
      *
      * @param value 商户号
      * @return 原值
      */
     public static String requireMchid(String value) {
-        return requireText(
-                value,
-                "mchid",
-                1,
-                32
-        );
+        return ValidationUtils.requireNotBlank(value, "mchid must not be blank");
     }
 
     /**
-     * 校验应用 ID。
+     * 校验应用 ID 非空白。
      *
      * @param value 应用 ID
      * @return 原值
      */
     public static String requireAppid(String value) {
-        return requireText(
-                value,
-                "appid",
-                1,
-                32
-        );
+        return ValidationUtils.requireNotBlank(value, "appid must not be blank");
     }
 
     /**
-     * 校验商户订单号。
+     * 校验商户订单号非空白。
      *
      * @param value 商户订单号
      * @return 原值
      */
     public static String requireOutTradeNo(String value) {
-        ValidationUtils.requireNotBlank(value, "outTradeNo must not be blank");
-        ValidationUtils.requireTrue(OUT_TRADE_NO.matcher(value).matches(),
-                "outTradeNo must contain 6-32 allowed characters");
-        return value;
+        return ValidationUtils.requireNotBlank(value, "outTradeNo must not be blank");
     }
 
     /**
-     * 校验商户退款单号。
+     * 校验商户退款单号非空白。
      *
      * @param value 商户退款单号
      * @return 原值
      */
     public static String requireOutRefundNo(String value) {
-        ValidationUtils.requireNotBlank(value, "outRefundNo must not be blank");
-        ValidationUtils.requireTrue(OUT_REFUND_NO.matcher(value).matches()
-                        && utf8Length(value) <= 64,
-                "outRefundNo must contain at most 64 bytes of allowed characters");
-        return value;
+        return ValidationUtils.requireNotBlank(value, "outRefundNo must not be blank");
     }
 
     /**
-     * 校验商户侧商品编码。
+     * 校验商户侧商品编码非空白。
      *
      * @param value 商品编码
      * @return 原值
      */
     public static String requireMerchantGoodsId(String value) {
-        ValidationUtils.requireNotBlank(value, "merchantGoodsId must not be blank");
-        ValidationUtils.requireTrue(MERCHANT_GOODS_ID.matcher(value).matches(),
-                "merchantGoodsId must contain 1-32 letters, digits, hyphens, or underscores");
-        return value;
+        return ValidationUtils.requireNotBlank(value, "merchantGoodsId must not be blank");
     }
 
     /**
-     * 校验不触发 DNS 查询的 IPv4 或 IPv6 字面量。
+     * 校验 IP 地址非空白；格式由服务端校验。
      *
-     * @param value IP 地址文本
-     * @param name 参数名
+     * @param value IP 地址
+     * @param name  参数名称
      * @return 原值
      */
     public static String requireIpAddress(String value, String name) {
-        ValidationUtils.requireNotBlank(value, name + " must not be blank");
-        ValidationUtils.requireTrue(value.length() <= 45 && value.indexOf('%') < 0,
-                name + " must be an IPv4 or IPv6 address without a scope identifier");
-        try {
-            InetAddress.ofLiteral(value);
-        } catch (IllegalArgumentException exception) {
-            throw new IllegalArgumentException(name + " must be an IPv4 or IPv6 address");
-        }
-        return value;
+        return ValidationUtils.requireNotBlank(value, name + " must not be blank");
     }
 
     /**
-     * 校验微信支付订单号或退款单号等非空标识。
+     * 校验金额、数量等数值为正数。
      *
-     * @param value 标识值
-     * @param name 参数名
-     * @param maximum 最大字符数
-     * @return 原值
-     */
-    public static String requireId(String value, String name, int maximum) {
-        return requireText(
-                value,
-                name,
-                1,
-                maximum
-        );
-    }
-
-    /**
-     * 校验普通文本和微信支付支持的 UTF-8 字符范围。
-     *
-     * @param value 文本
-     * @param name 参数名
-     * @param minimum 最少字符数
-     * @param maximum 最大字符数
-     * @return 原值
-     */
-    public static String requireText(
-            String value,
-            String name,
-            int minimum,
-            int maximum
-    ) {
-        if (minimum > 0) {
-            ValidationUtils.requireNotBlank(value, name + " must not be blank");
-        } else {
-            ValidationUtils.requireNonNull(value, name + " must not be null");
-        }
-        int characters = value.codePointCount(0, value.length());
-        ValidationUtils.requireTrue(characters >= minimum && characters <= maximum,
-                name + " length must be between " + minimum + " and " + maximum);
-        ValidationUtils.requireTrue(value.codePoints().noneMatch(codePoint -> codePoint > 0xFFFF),
-                name + " contains a character unsupported by WeChat Pay UTF-8 rules");
-        return value;
-    }
-
-    /**
-     * 校验按 UTF-8 字节数限制的可选文本。
-     *
-     * @param value 可选文本
-     * @param name 参数名
-     * @param maximumBytes 最大字节数
-     * @return 原值
-     */
-    public static @Nullable String requireOptionalBytes(@Nullable String value, String name,
-                                                        int maximumBytes) {
-        if (value == null) {
-            return null;
-        }
-        ValidationUtils.requireTrue(utf8Length(value) <= maximumBytes,
-                name + " must not exceed " + maximumBytes + " UTF-8 bytes");
-        ValidationUtils.requireTrue(value.codePoints().noneMatch(codePoint -> codePoint > 0xFFFF),
-                name + " contains a character unsupported by WeChat Pay UTF-8 rules");
-        return value;
-    }
-
-    /**
-     * 校验正金额。
-     *
-     * @param value 金额，单位为分
-     * @param name 参数名
+     * @param value 数值
+     * @param name  参数名称
      * @return 原值
      */
     public static long requirePositive(long value, String name) {
@@ -215,10 +114,10 @@ public final class WechatPayValidationUtils {
     }
 
     /**
-     * 校验非负金额或数量。
+     * 校验数值非负。
      *
      * @param value 数值
-     * @param name 参数名
+     * @param name  参数名称
      * @return 原值
      */
     public static long requireNonNegative(long value, String name) {
@@ -227,152 +126,66 @@ public final class WechatPayValidationUtils {
     }
 
     /**
-     * 校验微信支付通知地址。
-     *
-     * <p>通知地址由微信支付服务端主动回调，因此必须是带主机和完整业务路径的绝对 HTTPS 地址。
-     * 查询参数、片段和用户信息会造成回调目标含义不稳定或泄露认证信息，统一拒绝；长度使用
-     * ASCII 表示计算，以符合接口字段的 URL 字符限制。</p>
+     * 校验支付通知地址：微信支付只能回调绝对 HTTPS 地址。
      *
      * @param value 通知地址
-     * @param maximum 微信支付接口允许的最大 URL 字符数
-     * @return 已校验的原 URI
-     * @throws IllegalArgumentException 地址不满足 HTTPS、路径或长度等接口约束时抛出
+     * @return 原值
      */
-    public static URI requireNotifyUrl(URI value, int maximum) {
-        // 1. 微信支付服务端必须能通过 HTTPS 回调到一个明确的业务端点。
+    public static URI requireNotifyUrl(URI value) {
         ValidationUtils.requireNonNull(value, "notifyUrl must not be null");
-        ValidationUtils.requireTrue(value.isAbsolute() && "https".equalsIgnoreCase(value.getScheme()),
+        ValidationUtils.requireTrue(value.isAbsolute() && "https".equalsIgnoreCase(value.getScheme())
+                        && value.getHost() != null,
                 "notifyUrl must be an absolute HTTPS URL");
-        ValidationUtils.requireTrue(value.getHost() != null && !value.getHost().isBlank(),
-                "notifyUrl must contain a host");
-        String host = value.getHost();
-        ValidationUtils.requireTrue(!"localhost".equalsIgnoreCase(host)
-                        && !isIpLiteral(host),
-                "notifyUrl host must be a public domain name, not localhost or an IP address");
-        ValidationUtils.requireTrue(value.getRawPath() != null
-                        && !value.getRawPath().isBlank()
-                        && !"/".equals(value.getRawPath()),
-                "notifyUrl must contain a complete path");
-
-        // 2. 回调地址不能携带易变请求参数、片段或用户信息，避免目标含义漂移及认证信息泄露。
-        ValidationUtils.requireTrue(value.getRawQuery() == null && value.getRawFragment() == null,
-                "notifyUrl must not contain query parameters or a fragment");
-        ValidationUtils.requireTrue(value.getUserInfo() == null,
-                "notifyUrl must not contain user information");
-
-        // 3. 以实际传输的 ASCII URL 计算长度，保证不会超过对应微信支付接口字段上限。
-        ValidationUtils.requireTrue(value.toASCIIString().length() <= maximum,
-                "notifyUrl must not exceed " + maximum + " characters");
         return value;
     }
 
     /**
-     * 解析并校验微信支付通知地址。
+     * 解析并校验支付通知地址。
      *
      * @param value 通知地址文本
-     * @param maximum 微信支付接口允许的最大 URL 字符数
-     * @return 已校验的通知 URI
-     * @throws IllegalArgumentException 文本不是合法通知地址时抛出
+     * @return 解析后的地址
      */
-    public static URI requireNotifyUrl(String value, int maximum) {
+    public static URI requireNotifyUrl(String value) {
         ValidationUtils.requireNotBlank(value, "notifyUrl must not be blank");
         try {
-            return requireNotifyUrl(new URI(value), maximum);
+            return requireNotifyUrl(new URI(value));
         } catch (URISyntaxException exception) {
-            throw new IllegalArgumentException("notifyUrl must be a valid URI");
+            throw new IllegalArgumentException("notifyUrl must be a valid URI", exception);
         }
     }
 
     /**
-     * 校验并规范化微信支付 API 根地址。
+     * 校验 API 根地址并统一补齐末尾斜杠。
      *
-     * <p>生产环境只接受微信支付官方主、备域名。签名原文不包含主机名，因此不能把已签名请求
-     * 发送到任意第三方 HTTPS 服务；HTTP 或自定义端口仅允许环回测试地址。</p>
+     * <p>APIv3 签名不覆盖主机名，签名请求一旦发往第三方主机即可在有效期内被中继到真实接口，
+     * 因此只允许官方主、备域名（与官方 wechatpay-java 的 {@code HostName} 限制一致）；环回主机
+     * 仅用于本地协议测试。根地址不得带路径、查询参数、片段或用户信息，路径由传输层拼接。</p>
      *
      * @param value API 根地址
-     * @return 以斜杠结尾的可信根地址
+     * @return 以斜杠结尾的根地址
      */
     public static URI requireApiBaseUrl(URI value) {
-        // 1. 根地址必须唯一标识 HTTP 服务，不能混入用户信息或请求级参数。
-        ValidationUtils.requireNonNull(value, "apiBaseUrl must not be null");
-        ValidationUtils.requireTrue(value.isAbsolute(), "apiBaseUrl must be absolute");
-        ValidationUtils.requireTrue(
-                value.getHost() != null && !value.getHost().isBlank(),
-                "apiBaseUrl must contain a host"
-        );
-
-        // 2. 生产请求只发送到官方主备域名；自定义地址仅用于环回协议测试。
-        String scheme = value.getScheme();
-        String host = value.getHost().toLowerCase(Locale.ROOT);
-        boolean official = "https".equalsIgnoreCase(scheme)
-                && ("api.mch.weixin.qq.com".equals(host)
-                || "api2.mch.weixin.qq.com".equals(host))
+        String name = "apiBaseUrl";
+        ValidationUtils.requireNonNull(value, name + " must not be null");
+        String scheme = value.getScheme() == null ? "" : value.getScheme().toLowerCase(Locale.ROOT);
+        String host = value.getHost() == null ? "" : value.getHost().toLowerCase(Locale.ROOT);
+        boolean official = scheme.equals("https") && OFFICIAL_API_HOSTS.contains(host)
                 && (value.getPort() == -1 || value.getPort() == 443);
-        boolean localTest = isLoopbackHost(host)
-                && ("http".equalsIgnoreCase(scheme)
-                || "https".equalsIgnoreCase(scheme));
-        ValidationUtils.requireTrue(
-                official || localTest,
-                "apiBaseUrl must use an official WeChat Pay HTTPS host "
-                        + "or a loopback test host"
-        );
-
-        // 3. 传输层自行拼接 API 路径，根地址不得预置路径、查询参数或片段。
-        ValidationUtils.requireTrue(
-                value.getRawQuery() == null
-                        && value.getRawFragment() == null
+        boolean localTest = isLoopback(host) && (scheme.equals("https") || scheme.equals("http"));
+        ValidationUtils.requireTrue(value.isAbsolute() && (official || localTest),
+                name + " must use an official WeChat Pay HTTPS host or a loopback test host");
+        ValidationUtils.requireTrue(value.getRawQuery() == null && value.getRawFragment() == null
                         && value.getUserInfo() == null,
-                "apiBaseUrl must not contain user information, query, or fragment"
-        );
-        ValidationUtils.requireTrue(
-                value.getRawPath() == null
-                        || value.getRawPath().isEmpty()
+                name + " must not contain user information, query, or fragment");
+        ValidationUtils.requireTrue(value.getRawPath() == null || value.getRawPath().isEmpty()
                         || "/".equals(value.getRawPath()),
-                "apiBaseUrl must not contain a path"
-        );
-
-        // 4. 统一保留末尾斜杠，保证后续 URI 拼接不依赖调用方输入形式。
+                name + " must not contain a path");
         String text = value.toString();
         return URI.create(text.endsWith("/") ? text : text + '/');
     }
 
-    /**
-     * 返回 UTF-8 字节长度。
-     *
-     * @param value 文本
-     * @return UTF-8 字节数
-     */
-    public static int utf8Length(String value) {
-        return value.getBytes(StandardCharsets.UTF_8).length;
-    }
-
-    /**
-     * 判断主机文本是否为可直接解析的 IPv4 或 IPv6 字面量，方括号包裹的 IPv6 地址也受支持。
-     *
-     * @param host 待判断的 URI 主机文本
-     * @return 能按 IP 字面量解析时返回 {@code true}；域名或非法地址返回 {@code false}
-     */
-    private static boolean isIpLiteral(String host) {
-        String candidate = host.startsWith("[") && host.endsWith("]")
-                ? host.substring(1, host.length() - 1) : host;
-        try {
-            InetAddress.ofLiteral(candidate);
-            return true;
-        } catch (IllegalArgumentException exception) {
-            return false;
-        }
-    }
-
-    /**
-     * 判断主机名是否为允许在测试网关中使用的本地环回地址。
-     *
-     * @param host 待判断的 URI 主机文本
-     * @return 主机为 {@code localhost}、IPv4 环回或 IPv6 环回字面量时返回 {@code true}
-     */
-    private static boolean isLoopbackHost(String host) {
-        return "localhost".equalsIgnoreCase(host)
-                || "127.0.0.1".equals(host)
-                || "::1".equals(host)
-                || "[::1]".equals(host);
+    private static boolean isLoopback(String host) {
+        return "localhost".equalsIgnoreCase(host) || host.startsWith("127.")
+                || "[::1]".equals(host) || "::1".equals(host);
     }
 }

@@ -9,7 +9,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.http.HttpMethod;
-import com.zhengshuyun.lava.pay.alipay.exception.AlipayException;
 import com.zhengshuyun.lava.pay.alipay.internal.*;
 import org.jspecify.annotations.Nullable;
 
@@ -30,16 +29,16 @@ public final class RefundClient {
     private static final String QUERY_PATH = "/v3/alipay/trade/fastpay/refund/query";
 
     /** 根客户端共享的传输层与关闭状态；当前业务客户端不单独持有 HTTP 资源。 */
-    private final AlipayRuntime runtime;
+    private final AlipayTransport transport;
 
     /**
      * 使用根客户端共享运行时创建退款业务入口。
      *
-     * @param runtime 已配置应用密钥、网关和 HTTP 客户端的共享运行时
-     * @throws IllegalArgumentException {@code runtime} 为 {@code null}
+     * @param transport 共享协议传输层
+     * @throws IllegalArgumentException {@code transport} 为 {@code null}
      */
-    public RefundClient(AlipayRuntime runtime) {
-        this.runtime = ValidationUtils.requireNonNull(runtime, "runtime");
+    public RefundClient(AlipayTransport transport) {
+        this.transport = ValidationUtils.requireNonNull(transport, "transport");
     }
 
     /**
@@ -56,7 +55,7 @@ public final class RefundClient {
      */
     public RefundResult apply(RefundRequest request) {
         // 1. 将稳定退款请求号、金额和可选商品明细组装为官方 V3 退款载荷。
-        AlipayTransport transport = runtime.transport();
+        transport.ensureOpen();
         ValidationUtils.requireNonNull(request, "request must not be null");
         List<GoodsPayload> goods = request.goodsDetail().isEmpty() ? null
                 : request.goodsDetail().stream().map(GoodsPayload::from).toList();
@@ -93,7 +92,7 @@ public final class RefundClient {
                 outTradeNo,
                 response.fundChange,
                 AlipayMoneyUtils.parse(response.refundFee, "refund_fee"),
-                optionalMoney(response.sendBackFee, "send_back_fee"),
+                AlipayMoneyUtils.parseOptional(response.sendBackFee, "send_back_fee"),
                 response.buyerOpenId,
                 response.buyerLogonId,
                 toFundBills(response.fundBills)
@@ -110,7 +109,7 @@ public final class RefundClient {
      */
     public RefundQueryResult query(RefundQueryRequest request) {
         // 1. 使用原交易标识和稳定退款请求号构造 V3 退款查询载荷。
-        AlipayTransport transport = runtime.transport();
+        transport.ensureOpen();
         ValidationUtils.requireNonNull(request, "request must not be null");
         QueryPayload response = transport.execute(
                 QUERY_PATH,
@@ -140,11 +139,11 @@ public final class RefundClient {
                 response.tradeNo,
                 response.outTradeNo,
                 response.outRequestNo,
-                optionalMoney(response.totalAmount, "total_amount"),
-                optionalMoney(response.refundAmount, "refund_amount"),
+                AlipayMoneyUtils.parseOptional(response.totalAmount, "total_amount"),
+                AlipayMoneyUtils.parseOptional(response.refundAmount, "refund_amount"),
                 response.refundStatus,
                 AlipayDateTimeUtils.parseOptional(response.refundTime, "gmt_refund_pay"),
-                optionalMoney(response.sendBackFee, "send_back_fee"),
+                AlipayMoneyUtils.parseOptional(response.sendBackFee, "send_back_fee"),
                 toDepositBackInfo(response.depositBackInfo),
                 toFundBills(response.fundBills)
         );
@@ -186,10 +185,9 @@ public final class RefundClient {
             @Nullable List<FundBillPayload> values) {
         return values == null ? List.of() : values.stream().map(value ->
                 new RefundFundBill(
-                        AlipayValidationUtils.requireResponseText(
-                                value.fundChannel, "fund_channel"),
+                        value.fundChannel,
                         AlipayMoneyUtils.parse(value.amount, "fund_bill.amount"),
-                        optionalMoney(value.realAmount, "fund_bill.real_amount"),
+                        AlipayMoneyUtils.parseOptional(value.realAmount, "fund_bill.real_amount"),
                         value.fundType
                 )).toList();
     }
@@ -207,35 +205,16 @@ public final class RefundClient {
         if (value == null) {
             return null;
         }
-        if (value.hasDepositBack != null
-                && !"true".equalsIgnoreCase(value.hasDepositBack)
-                && !"false".equalsIgnoreCase(value.hasDepositBack)) {
-            throw new com.zhengshuyun.lava.pay.alipay.exception.AlipayProtocolException(
-                    "支付宝银行卡冲退标识无效");
-        }
         return new DepositBackInfo(
                 Boolean.parseBoolean(value.hasDepositBack),
                 value.status,
-                optionalMoney(value.amount, "deposit_back_info.dback_amount"),
+                AlipayMoneyUtils.parseOptional(value.amount, "deposit_back_info.dback_amount"),
                 AlipayDateTimeUtils.parseOptional(
                         value.bankAckTime, "deposit_back_info.bank_ack_time"),
                 AlipayDateTimeUtils.parseOptional(
                         value.estimatedReceiptTime,
                         "deposit_back_info.est_bank_receipt_time")
         );
-    }
-
-    /**
-     * 将支付宝可选元金额字符串严格转换为分。
-     *
-     * @param value 元金额字符串；字段未返回时为 {@code null}
-     * @param name  用于异常定位的协议字段名
-     * @return 分金额；输入为 {@code null} 时返回 {@code null}
-     * @throws com.zhengshuyun.lava.pay.alipay.exception.AlipayProtocolException
-     *         金额不是合法的非负元金额或超过支持范围
-     */
-    private static @Nullable Long optionalMoney(@Nullable String value, String name) {
-        return value == null ? null : AlipayMoneyUtils.parse(value, name);
     }
 
     /**

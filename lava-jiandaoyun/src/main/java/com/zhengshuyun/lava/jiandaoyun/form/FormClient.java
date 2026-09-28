@@ -19,7 +19,6 @@ package com.zhengshuyun.lava.jiandaoyun.form;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
-import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunRuntime;
 import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunTransport;
 import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunValidationUtils;
 import org.jspecify.annotations.Nullable;
@@ -36,15 +35,15 @@ public final class FormClient {
     private static final String WIDGET_LIST_PATH = "/api/v5/app/entry/widget/list";
 
     /** 根客户端共享的鉴权传输层与关闭状态。 */
-    private final JiandaoyunRuntime runtime;
+    private final JiandaoyunTransport transport;
 
     /**
      * 由根客户端创建表单查询入口。
      *
-     * @param runtime 共享运行时
+     * @param transport 共享协议传输层
      */
-    public FormClient(JiandaoyunRuntime runtime) {
-        this.runtime = ValidationUtils.requireNonNull(runtime, "runtime");
+    public FormClient(JiandaoyunTransport transport) {
+        this.transport = ValidationUtils.requireNonNull(transport, "transport");
     }
 
     /**
@@ -54,7 +53,7 @@ public final class FormClient {
      * @return 表单信息列表
      */
     public List<Form> list(ListFormsRequest request) {
-        JiandaoyunTransport transport = runtime.transport();
+        transport.ensureOpen();
         request = ValidationUtils.requireNonNull(request, "request must not be null");
         FormListPayload payload = transport.post(
                 transport.endpoint(FORM_LIST_PATH),
@@ -72,7 +71,7 @@ public final class FormClient {
      * @return 表单字段查询结果
      */
     public FormWidgets listWidgets(String appId, String entryId) {
-        JiandaoyunTransport transport = runtime.transport();
+        transport.ensureOpen();
         appId = JiandaoyunValidationUtils.requireAppId(appId);
         entryId = JiandaoyunValidationUtils.requireEntryId(entryId);
         return transport.post(

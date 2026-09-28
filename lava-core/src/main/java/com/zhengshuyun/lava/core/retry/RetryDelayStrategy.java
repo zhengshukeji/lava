@@ -19,13 +19,10 @@ package com.zhengshuyun.lava.core.retry;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
 
 import java.time.Duration;
-import java.util.random.RandomGenerator;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * 计算一次可重试尝试结束后的等待时长。
- *
- * <p>策略实现必须返回非负 {@link Duration}。只有带抖动的策略会用到 {@code random}，
- * 固定和无延迟策略忽略它。
+ * 计算一次可重试尝试结束后的等待时长，实现必须返回非负 {@link Duration}。
  */
 @FunctionalInterface
 public interface RetryDelayStrategy {
@@ -34,10 +31,9 @@ public interface RetryDelayStrategy {
      * 返回一次可重试尝试结束后的等待时长。
      *
      * @param attempt 已完成的尝试序号，从 1 开始
-     * @param random  执行器持有的随机数源
      * @return 下一次重试前的非负延迟
      */
-    Duration delayAfter(int attempt, RandomGenerator random);
+    Duration delayAfter(int attempt);
 
     /**
      * 创建不等待的延迟策略。
@@ -56,7 +52,7 @@ public interface RetryDelayStrategy {
      */
     static RetryDelayStrategy fixed(Duration delay) {
         requireNonNegative(delay, "delay");
-        return (attempt, random) -> delay;
+        return attempt -> delay;
     }
 
     /**
@@ -95,13 +91,12 @@ public interface RetryDelayStrategy {
             throw new IllegalArgumentException("initialDelay must be <= maxDelay");
         }
 
-        return (attempt, random) -> {
+        return attempt -> {
             if (attempt < 1) {
                 throw new IllegalArgumentException("attempt must be >= 1");
             }
-            ValidationUtils.requireNonNull(random, "random");
             Duration cap = exponentialCap(initialDelay, multiplier, maxDelay, attempt);
-            return jitter ? multiply(cap, random.nextDouble()) : cap;
+            return jitter ? multiply(cap, ThreadLocalRandom.current().nextDouble()) : cap;
         };
     }
 

@@ -50,7 +50,7 @@ public final class AlipayDateTimeUtils {
         try {
             return LocalDateTime.parse(value, DATE_TIME);
         } catch (DateTimeParseException exception) {
-            throw new AlipayProtocolException("支付宝响应字段 " + name + " 不是有效时间");
+            throw new AlipayProtocolException("支付宝响应字段 " + name + " 不是有效时间", exception);
         }
     }
 

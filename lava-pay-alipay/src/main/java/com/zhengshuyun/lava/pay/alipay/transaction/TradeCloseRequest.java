@@ -24,7 +24,7 @@ public final class TradeCloseRequest {
      * 使用构建期参数创建并校验不可变交易关闭请求。
      *
      * @param builder 已收集交易标识和可选操作员编号的构建器
-     * @throws IllegalArgumentException 未提供交易标识，或订单号、交易号、操作员编号不符合约束
+     * @throws IllegalArgumentException 未提供交易标识，或订单号、交易号为空白
      */
     private TradeCloseRequest(Builder builder) {
         ValidationUtils.requireTrue(builder.outTradeNo != null || builder.tradeNo != null,
@@ -33,8 +33,7 @@ public final class TradeCloseRequest {
                 : AlipayValidationUtils.requireOutTradeNo(builder.outTradeNo);
         tradeNo = builder.tradeNo == null ? null
                 : AlipayValidationUtils.requireTradeNo(builder.tradeNo);
-        operatorId = AlipayValidationUtils.requireOptionalText(
-                builder.operatorId, "operatorId", 28);
+        operatorId = builder.operatorId;
     }
 
     /**

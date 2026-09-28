@@ -6,26 +6,15 @@
 package com.zhengshuyun.lava.pay.alipay.bill;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
-import com.zhengshuyun.lava.pay.alipay.internal.AlipayValidationUtils;
 import org.jspecify.annotations.Nullable;
 
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.util.Set;
 
 /**
  * 普通商户日账单或月账单下载地址查询参数。
  */
 public final class BillRequest {
-    /** 官方 Java V3 SDK 当前收录的账单类型集合。 */
-    private static final Set<String> TYPES = Set.of(
-            BillType.TRADE,
-            BillType.SIGN_CUSTOMER,
-            BillType.MERCHANT_ACTIVITY,
-            BillType.TRADE_ZFT_MERCHANT,
-            BillType.ZFT_ACCOUNT,
-            BillType.SETTLEMENT_MERGE
-    );
 
     /** 账单类型，必须属于 {@link BillType} 定义的范围。 */
     private final String billType;
@@ -42,8 +31,7 @@ public final class BillRequest {
      * @param builder 构建器
      */
     private BillRequest(Builder builder) {
-        billType = AlipayValidationUtils.requireOneOf(
-                builder.billType, "billType", TYPES);
+        billType = ValidationUtils.requireNotBlank(builder.billType, "billType must not be blank");
         ValidationUtils.requireTrue((builder.date == null) != (builder.month == null),
                 "exactly one of date and month is required");
         ValidationUtils.requireTrue(!BillType.SETTLEMENT_MERGE.equals(billType)
@@ -51,7 +39,7 @@ public final class BillRequest {
                 "settlementMerge only supports a daily bill date");
         date = builder.date;
         month = builder.month;
-        smid = AlipayValidationUtils.requireOptionalText(builder.smid, "smid", 20);
+        smid = builder.smid;
         ValidationUtils.requireTrue(smid == null
                         || BillType.TRADE_ZFT_MERCHANT.equals(billType),
                 "smid is only supported for trade_zft_merchant bills");

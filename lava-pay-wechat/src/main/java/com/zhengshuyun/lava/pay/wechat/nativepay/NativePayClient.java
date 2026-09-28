@@ -18,8 +18,7 @@ package com.zhengshuyun.lava.pay.wechat.nativepay;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
-import com.zhengshuyun.lava.pay.wechat.exception.WechatPayException;
-import com.zhengshuyun.lava.pay.wechat.internal.WechatPayRuntime;
+import com.zhengshuyun.lava.pay.wechat.exception.WechatPayProtocolException;
 import com.zhengshuyun.lava.pay.wechat.internal.WechatPayTransport;
 import org.jspecify.annotations.Nullable;
 
@@ -39,9 +38,9 @@ public final class NativePayClient {
     private static final String PREPAY_PATH = "/v3/pay/transactions/native";
 
     /**
-     * 共享协议能力和根客户端生命周期所在的运行时。
+     * 共享协议能力和根客户端关闭状态所在的传输层。
      */
-    private final WechatPayRuntime runtime;
+    private final WechatPayTransport transport;
     /**
      * 当前应用上下文固定绑定的 APPID。
      */
@@ -54,14 +53,14 @@ public final class NativePayClient {
     /**
      * 由应用上下文创建 Native 支付入口。
      *
-     * @param runtime   共享运行时
+     * @param transport   共享协议传输层
      * @param appid     应用 ID
      * @param notifyUrl 固定支付通知地址
      */
-    public NativePayClient(WechatPayRuntime runtime,
+    public NativePayClient(WechatPayTransport transport,
                            String appid,
                            URI notifyUrl) {
-        this.runtime = ValidationUtils.requireNonNull(runtime, "runtime");
+        this.transport = ValidationUtils.requireNonNull(transport, "transport");
         this.appid = ValidationUtils.requireNotBlank(appid, "appid");
         this.notifyUrl = ValidationUtils.requireNonNull(notifyUrl, "notifyUrl");
     }
@@ -74,8 +73,8 @@ public final class NativePayClient {
      * @throws WechatPayException 协议调用失败
      */
     public NativePrepayResponse prepay(NativePrepayRequest request) {
-        // 1. 先取得仍可用的共享运行时资源，防止根客户端关闭后继续创建支付订单。
-        WechatPayTransport transport = runtime.transport();
+        // 1. 先确认根客户端未关闭，防止关闭后继续创建支付订单。
+        transport.ensureOpen();
         ValidationUtils.requireNonNull(request, "request must not be null");
 
         // 2. 将固定应用配置与单笔业务参数合成为最终协议载荷，业务请求不能覆盖商户级配置。
@@ -98,12 +97,14 @@ public final class NativePayClient {
                 settleInfo
         );
 
-        // 3. 由传输层使用最终载荷完成 JSON 编码、请求签名、发送、响应验签和结果解析。
-        return transport.post(
-                transport.endpoint(PREPAY_PATH),
-                payload,
-                NativePrepayResponse.class
-        );
+        // 3. 由传输层使用最终载荷完成 JSON 编码、请求签名、发送、响应验签和结果解析
+        NativePrepayResponse response = transport.post(
+                transport.endpoint(PREPAY_PATH), payload, NativePrepayResponse.class);
+        // code_url 是下单的唯一产出，缺失说明协议已变化，不能把 null 交给调用方
+        if (response.codeUrl() == null) {
+            throw new WechatPayProtocolException("微信支付 Native 下单响应缺少 code_url");
+        }
+        return response;
     }
 
     /**

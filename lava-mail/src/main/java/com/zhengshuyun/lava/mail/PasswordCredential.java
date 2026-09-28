@@ -31,7 +31,7 @@ public final class PasswordCredential implements MailCredential {
      * @param password 登录密码
      */
     public PasswordCredential(String username, String password) {
-        this.username = requireNonBlankWithoutControls(username, "username");
+        this.username = MailValidationUtils.requireNonBlankWithoutControls(username, "username");
         this.password = ValidationUtils.requireNonNull(password, "password");
     }
 
@@ -52,21 +52,5 @@ public final class PasswordCredential implements MailCredential {
     @Override
     public String toString() {
         return "PasswordCredential[username=" + username + ", password=<redacted>]";
-    }
-
-    static String requireNonBlank(String value, String name) {
-        return ValidationUtils.requireNotBlank(value, name + " must not be blank").strip();
-    }
-
-    static String requireNonBlankPreserved(String value, String name) {
-        return ValidationUtils.requireNotBlank(value, name + " must not be blank");
-    }
-
-    static String requireNonBlankWithoutControls(String value, String name) {
-        String normalized = requireNonBlank(value, name);
-        if (normalized.codePoints().anyMatch(Character::isISOControl)) {
-            throw new IllegalArgumentException(name + " must not contain control characters");
-        }
-        return normalized;
     }
 }

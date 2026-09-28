@@ -17,13 +17,6 @@ import java.util.Set;
  * 支付宝退款查询参数。商户订单号与支付宝交易号至少提供一个；同时提供时支付宝优先使用交易号。
  */
 public final class RefundQueryRequest {
-    /** 退款查询接口允许请求的扩展响应字段集合。 */
-    private static final Set<String> OPTIONS = Set.of(
-            RefundQueryOption.REFUND_DETAIL_ITEM_LIST,
-            RefundQueryOption.GMT_REFUND_PAY,
-            RefundQueryOption.DEPOSIT_BACK_INFO,
-            RefundQueryOption.REFUND_VOUCHER_DETAIL_LIST
-    );
 
     /** 商户订单号；与支付宝交易号至少提供一个，同时存在时支付宝优先使用交易号。 */
     private final @Nullable String outTradeNo;
@@ -38,7 +31,7 @@ public final class RefundQueryRequest {
      * 使用构建期参数创建并校验不可变退款查询请求。
      *
      * @param builder 已收集原交易标识、退款请求号和扩展查询选项的构建器
-     * @throws IllegalArgumentException 未提供交易标识，或订单号、退款请求号、查询选项不符合约束
+     * @throws IllegalArgumentException 未提供交易标识，或订单号、退款请求号、查询选项为空白
      */
     private RefundQueryRequest(Builder builder) {
         ValidationUtils.requireTrue(builder.outTradeNo != null || builder.tradeNo != null,
@@ -152,8 +145,7 @@ public final class RefundQueryRequest {
          * @return 当前构建器
          */
         public Builder addQueryOption(String value) {
-            queryOptions.add(AlipayValidationUtils.requireOneOf(
-                    value, "queryOption", OPTIONS));
+            queryOptions.add(ValidationUtils.requireNotBlank(value, "queryOption must not be blank"));
             return this;
         }
 

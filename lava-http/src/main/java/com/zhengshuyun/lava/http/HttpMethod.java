@@ -140,7 +140,7 @@ public final class HttpMethod {
     /**
      * 返回此方法的名称, 例如 "GET"、"POST".
      */
-    public String getName() {
+    public String name() {
         return name;
     }
 

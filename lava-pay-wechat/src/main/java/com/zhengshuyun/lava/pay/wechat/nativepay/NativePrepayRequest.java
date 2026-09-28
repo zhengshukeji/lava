@@ -17,7 +17,6 @@
 package com.zhengshuyun.lava.pay.wechat.nativepay;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
-import com.zhengshuyun.lava.pay.wechat.internal.WechatPayJsonUtils;
 import com.zhengshuyun.lava.pay.wechat.internal.WechatPayValidationUtils;
 import org.jspecify.annotations.Nullable;
 
@@ -64,12 +63,7 @@ public final class NativePrepayRequest {
      */
     private NativePrepayRequest(Builder builder) {
         // 1. 建立下单必填业务参数，保证最终请求可以关联本地订单。
-        description = WechatPayValidationUtils.requireText(
-                ValidationUtils.requireNonNull(builder.description, "description is required"),
-                "description",
-                1,
-                127
-        );
+        description = ValidationUtils.requireNotBlank(builder.description, "description is required");
         outTradeNo = WechatPayValidationUtils.requireOutTradeNo(
                 ValidationUtils.requireNonNull(builder.outTradeNo, "outTradeNo is required"));
         amount = WechatPayValidationUtils.requirePositive(
@@ -83,13 +77,6 @@ public final class NativePrepayRequest {
         detail = builder.detail;
         sceneInfo = builder.sceneInfo;
         profitSharing = builder.profitSharing;
-
-        // 3. 商品详情限制按与真实请求一致的紧凑 JSON 字节数计算。
-        if (detail != null) {
-            int detailBytes = WechatPayJsonUtils.codec().writeBytes(detail).length;
-            ValidationUtils.requireTrue(detailBytes <= 6144,
-                    "detail must not exceed 6144 compact JSON bytes");
-        }
     }
 
     /**
@@ -227,12 +214,7 @@ public final class NativePrepayRequest {
          * @return 当前构建器
          */
         public Builder description(String value) {
-            description = WechatPayValidationUtils.requireText(
-                    value,
-                    "description",
-                    1,
-                    127
-            );
+            description = ValidationUtils.requireNotBlank(value, "description must not be blank");
             return this;
         }
 
@@ -266,12 +248,7 @@ public final class NativePrepayRequest {
          * @return 当前构建器
          */
         public Builder attach(String value) {
-            attach = WechatPayValidationUtils.requireText(
-                    value,
-                    "attach",
-                    0,
-                    128
-            );
+            attach = ValidationUtils.requireNonNull(value, "attach must not be null");
             return this;
         }
 
@@ -282,12 +259,7 @@ public final class NativePrepayRequest {
          * @return 当前构建器
          */
         public Builder goodsTag(String value) {
-            goodsTag = WechatPayValidationUtils.requireText(
-                    value,
-                    "goodsTag",
-                    1,
-                    32
-            );
+            goodsTag = ValidationUtils.requireNotBlank(value, "goodsTag must not be blank");
             return this;
         }
 

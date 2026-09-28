@@ -55,31 +55,14 @@ public record Refund(
         @JsonProperty("create_time") OffsetDateTime createTime,
         @JsonProperty("status") String status,
         @JsonProperty("funds_account") String fundsAccount,
-        @JsonProperty("amount") Amount amount,
+        @JsonProperty("amount") @Nullable Amount amount,
         @JsonProperty("promotion_detail") @Nullable List<PromotionDetail> promotionDetail
 ) {
 
     /**
-     * 校验退款单必填字段并复制优惠列表。
+     * 复制优惠列表以保持记录不可变。
      */
     public Refund {
-        ValidationUtils.requireNotBlank(refundId, "refundId must not be blank");
-        ValidationUtils.requireNotBlank(outRefundNo, "outRefundNo must not be blank");
-        ValidationUtils.requireNotBlank(transactionId, "transactionId must not be blank");
-        ValidationUtils.requireNotBlank(outTradeNo, "outTradeNo must not be blank");
-        ValidationUtils.requireNotBlank(channel, "channel must not be blank");
-        ValidationUtils.requireNonNull(userReceivedAccount,
-                "userReceivedAccount must not be null");
-        ValidationUtils.requireNonNull(createTime, "createTime must not be null");
-        ValidationUtils.requireNotBlank(status, "status must not be blank");
-        if (RefundStatus.SUCCESS.equals(status)) {
-            ValidationUtils.requireNonNull(
-                    successTime,
-                    "successTime must not be null when status is SUCCESS"
-            );
-        }
-        ValidationUtils.requireNotBlank(fundsAccount, "fundsAccount must not be blank");
-        ValidationUtils.requireNonNull(amount, "amount must not be null");
         if (promotionDetail != null) {
             promotionDetail = List.copyOf(promotionDetail);
         }
@@ -113,6 +96,7 @@ public record Refund(
         WechatPayValidationUtils.requirePositive(expectedRefund, "expectedRefund");
         if (!expectedOutTradeNo.equals(outTradeNo)
                 || !expectedOutRefundNo.equals(outRefundNo)
+                || amount == null
                 || expectedTotal != amount.total
                 || expectedRefund != amount.refund) {
             throw new WechatPaySecurityException(
@@ -148,16 +132,9 @@ public record Refund(
                 expectedTotal,
                 expectedRefund
         );
-        expectedTransactionId = WechatPayValidationUtils.requireId(
-                expectedTransactionId,
-                "expectedTransactionId",
-                32
-        );
-        expectedRefundId = WechatPayValidationUtils.requireId(
-                expectedRefundId,
-                "expectedRefundId",
-                32
-        );
+        expectedTransactionId = ValidationUtils.requireNotBlank(
+                expectedTransactionId, "expectedTransactionId must not be blank");
+        expectedRefundId = ValidationUtils.requireNotBlank(expectedRefundId, "expectedRefundId must not be blank");
         if (!expectedTransactionId.equals(transactionId)
                 || !expectedRefundId.equals(refundId)) {
             throw new WechatPaySecurityException(
@@ -198,26 +175,6 @@ public record Refund(
          * 复制退款出资列表。
          */
         public Amount {
-            WechatPayValidationUtils.requirePositive(total, "amount.total");
-            WechatPayValidationUtils.requirePositive(refund, "amount.refund");
-            ValidationUtils.requireTrue(refund <= total,
-                    "amount.refund must not exceed amount.total");
-            WechatPayValidationUtils.requireNonNegative(payerTotal,
-                    "amount.payerTotal");
-            WechatPayValidationUtils.requireNonNegative(payerRefund,
-                    "amount.payerRefund");
-            WechatPayValidationUtils.requireNonNegative(settlementRefund,
-                    "amount.settlementRefund");
-            WechatPayValidationUtils.requireNonNegative(settlementTotal,
-                    "amount.settlementTotal");
-            WechatPayValidationUtils.requireNonNegative(discountRefund,
-                    "amount.discountRefund");
-            ValidationUtils.requireTrue("CNY".equals(currency),
-                    "amount.currency must be CNY");
-            if (refundFee != null) {
-                WechatPayValidationUtils.requireNonNegative(refundFee,
-                        "amount.refundFee");
-            }
             if (from != null) {
                 from = List.copyOf(from);
             }
@@ -234,14 +191,6 @@ public record Refund(
     public record AmountFrom(
             @JsonProperty("account") String account,
             @JsonProperty("amount") long amount) {
-        /**
-         * 校验退款出资账户。
-         */
-        public AmountFrom {
-            ValidationUtils.requireNotBlank(account,
-                    "amountFrom.account must not be blank");
-            WechatPayValidationUtils.requirePositive(amount, "amountFrom.amount");
-        }
     }
 
     /**
@@ -267,16 +216,6 @@ public record Refund(
          * 复制优惠退款商品列表。
          */
         public PromotionDetail {
-            ValidationUtils.requireNotBlank(promotionId,
-                    "promotionDetail.promotionId must not be blank");
-            ValidationUtils.requireNotBlank(scope,
-                    "promotionDetail.scope must not be blank");
-            ValidationUtils.requireNotBlank(type,
-                    "promotionDetail.type must not be blank");
-            WechatPayValidationUtils.requireNonNegative(amount,
-                    "promotionDetail.amount");
-            WechatPayValidationUtils.requireNonNegative(refundAmount,
-                    "promotionDetail.refundAmount");
             if (goodsDetail != null) {
                 goodsDetail = List.copyOf(goodsDetail);
             }
@@ -302,30 +241,5 @@ public record Refund(
             @JsonProperty("refund_amount") long refundAmount,
             @JsonProperty("refund_quantity") long refundQuantity
     ) {
-        /**
-         * 校验优惠退款商品详情。
-         */
-        public GoodsDetail {
-            WechatPayValidationUtils.requireMerchantGoodsId(merchantGoodsId);
-            if (wechatpayGoodsId != null) {
-                WechatPayValidationUtils.requireText(
-                        wechatpayGoodsId,
-                        "wechatpayGoodsId",
-                        1,
-                        32
-                );
-            }
-            if (goodsName != null) {
-                WechatPayValidationUtils.requireText(
-                        goodsName,
-                        "goodsName",
-                        1,
-                        256
-                );
-            }
-            WechatPayValidationUtils.requirePositive(unitPrice, "unitPrice");
-            WechatPayValidationUtils.requirePositive(refundAmount, "refundAmount");
-            WechatPayValidationUtils.requirePositive(refundQuantity, "refundQuantity");
-        }
     }
 }

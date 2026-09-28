@@ -1,26 +1,17 @@
-# 并发、Misfire 与生命周期
+# 并发、错过触发与生命周期
 
 ## 并发策略
 
 | 策略 | 行为 |
 | --- | --- |
-| `ConcurrencyPolicy.SERIAL_SKIP` | 前一次仍运行时跳过，不重叠、不排队 |
-| `serialQueue(maxPending)` | 单任务串行，使用有界待执行队列 |
-| `parallel(maxConcurrency, maxPending)` | 有界并发和有界待执行队列 |
+| `ConcurrencyPolicy.SKIP_IF_RUNNING` | 默认。上一次仍在运行时跳过本次并产生 `SKIPPED` 事件，同一任务永不重叠 |
+| `ConcurrencyPolicy.PARALLEL` | 允许同一任务的多次执行并行 |
 
-默认 `ScheduleOptions.DEFAULT` 使用 `SERIAL_SKIP + SKIP`。
+全局并发由 `executionBounds(maxConcurrent, maxPending)` 约束：执行器满载且队列已满时产生 `REJECTED` 事件，不会创建无界虚拟线程。
 
-队列满或底层 executor 拒绝时产生 `REJECTED` 事件，不创建无界虚拟线程。
+## 错过触发
 
-## Misfire
-
-| 策略 | 行为 |
-| --- | --- |
-| `SKIP` | 丢弃已经错过的 occurrence |
-| `FIRE_ONCE` | 无论错过多少次，只补一次 |
-| `CATCH_UP` | 把错过的 occurrence 交给当前有界并发策略 |
-
-`CATCH_UP` 不代表无界补偿。最终仍受任务队列和调度器执行边界限制，容量不足时产生跳过或拒绝事件。
+暂停后恢复、协调线程停顿或时钟前跳都可能让计划时刻被错过。错过的多次触发**合并为一次立即执行**，随后从当前时刻按触发器继续推进，积压再多也只执行一次。这与 Quartz 对 Cron 的默认处理（`FIRE_ONCE_NOW`）以及 `ScheduledThreadPoolExecutor` 迟到执行的行为一致；需要逐次补偿的场景应使用持久化调度系统。
 
 ## 任务事件
 

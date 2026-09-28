@@ -24,7 +24,7 @@ BillDownloadInfo info = client.bills().applyFundFlowBill(
 );
 ```
 
-账单日期必须早于当天，且不早于最近三个月。
+账单日期需早于当天且在微信支付允许的查询范围内（目前为最近三个月），范围由微信支付服务端校验。
 
 ## 下载
 

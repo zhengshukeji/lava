@@ -16,6 +16,11 @@
 package com.zhengshuyun.lava.mail;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
+import jakarta.mail.Address;
+import jakarta.mail.Session;
+import jakarta.mail.Transport;
+import jakarta.mail.internet.MimeMessage;
+import org.jspecify.annotations.Nullable;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -27,7 +32,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class MailSender implements AutoCloseable {
     private final SmtpServerConfig config;
     private final MailCredential credential;
-    private final MailSenderEngine engine;
+    private final MailClientOptions options;
+    /**
+     * OAuth2 凭证的访问令牌缓存；口令凭证时为 null。
+     */
+    private final @Nullable OAuth2AccessTokenProvider tokenProvider;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     /**
@@ -51,7 +60,8 @@ public final class MailSender implements AutoCloseable {
             SmtpServerConfig config, MailCredential credential, MailClientOptions options) {
         this.config = ValidationUtils.requireNonNull(config, "config");
         this.credential = ValidationUtils.requireNonNull(credential, "credential");
-        this.engine = MailSenderEngine.create(credential, ValidationUtils.requireNonNull(options, "options"));
+        this.options = ValidationUtils.requireNonNull(options, "options");
+        this.tokenProvider = OAuth2AccessTokenProvider.forCredential(credential, options);
     }
 
     /**
@@ -65,7 +75,30 @@ public final class MailSender implements AutoCloseable {
         if (closed.get()) {
             throw new IllegalStateException("mail sender is closed");
         }
-        return engine.send(config, credential, ValidationUtils.requireNonNull(request, "request"));
+        ValidationUtils.requireNonNull(request, "request");
+        Session session = MailSessionFactory.smtp(config, credential);
+        // 先完成纯本地的 MIME 构造与大小校验，避免无效请求触发 OAuth2 网络刷新
+        MimeMessage message = MimeMessageFactory.create(
+                session, request, options.limits(), options.clock());
+        String token = tokenProvider == null ? null : tokenProvider.accessToken();
+        try (Transport transport = session.getTransport("smtp")) {
+            transport.connect(
+                    config.host(), config.port(), credential.username(),
+                    MailSessionFactory.authenticationSecret(credential, token));
+            Address[] recipients = message.getAllRecipients();
+            if (recipients == null || recipients.length == 0) {
+                throw new MailException(MailFailureKind.CONFIGURATION, "message has no recipients");
+            }
+            transport.sendMessage(message, recipients);
+            String[] messageIds = message.getHeader("Message-ID");
+            return new MailSendResult(
+                    messageIds == null || messageIds.length == 0 ? null : messageIds[0],
+                    options.clock().instant());
+        } catch (MailException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw MailFailures.wrap("send SMTP message", exception);
+        }
     }
 
     /**
@@ -73,8 +106,8 @@ public final class MailSender implements AutoCloseable {
      */
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
-            engine.close();
+        if (closed.compareAndSet(false, true) && tokenProvider != null) {
+            tokenProvider.close();
         }
     }
 }

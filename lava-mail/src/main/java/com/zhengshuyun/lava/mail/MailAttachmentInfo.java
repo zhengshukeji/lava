@@ -48,8 +48,8 @@ public record MailAttachmentInfo(
         if (index < 0) {
             throw new IllegalArgumentException("index must not be negative");
         }
-        fileName = PasswordCredential.requireNonBlank(fileName, "fileName");
-        contentType = PasswordCredential.requireNonBlank(contentType, "contentType");
+        fileName = MailValidationUtils.requireNonBlank(fileName, "fileName");
+        contentType = MailValidationUtils.requireNonBlank(contentType, "contentType");
         if (fileName.codePoints().anyMatch(Character::isISOControl)
                 || contentType.codePoints().anyMatch(Character::isISOControl)
                 || (contentId != null

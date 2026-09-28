@@ -31,16 +31,6 @@ public record RefundNotification(
         String summary,
         Resource refund
 ) {
-    /**
-     * 校验通知必填字段。
-     */
-    public RefundNotification {
-        ValidationUtils.requireNotBlank(id, "id must not be blank");
-        ValidationUtils.requireNonNull(createTime, "createTime must not be null");
-        ValidationUtils.requireNotBlank(eventType, "eventType must not be blank");
-        ValidationUtils.requireNonNull(summary, "summary must not be null");
-        ValidationUtils.requireNonNull(refund, "refund must not be null");
-    }
 
     /**
      * 使用后端可信退款记录核对订单号、退款单号和金额。
@@ -70,6 +60,7 @@ public record RefundNotification(
         WechatPayValidationUtils.requirePositive(expectedRefund, "expectedRefund");
         if (!expectedOutTradeNo.equals(refund.outTradeNo)
                 || !expectedOutRefundNo.equals(refund.outRefundNo)
+                || refund.amount == null
                 || expectedTotal != refund.amount.total
                 || expectedRefund != refund.amount.refund) {
             throw new WechatPaySecurityException(
@@ -105,16 +96,9 @@ public record RefundNotification(
                 expectedTotal,
                 expectedRefund
         );
-        expectedTransactionId = WechatPayValidationUtils.requireId(
-                expectedTransactionId,
-                "expectedTransactionId",
-                32
-        );
-        expectedRefundId = WechatPayValidationUtils.requireId(
-                expectedRefundId,
-                "expectedRefundId",
-                32
-        );
+        expectedTransactionId = ValidationUtils.requireNotBlank(
+                expectedTransactionId, "expectedTransactionId must not be blank");
+        expectedRefundId = ValidationUtils.requireNotBlank(expectedRefundId, "expectedRefundId must not be blank");
         if (!expectedTransactionId.equals(refund.transactionId)
                 || !expectedRefundId.equals(refund.refundId)) {
             throw new WechatPaySecurityException(
@@ -147,22 +131,8 @@ public record RefundNotification(
             @JsonProperty("refund_status") String refundStatus,
             @JsonProperty("success_time") @Nullable OffsetDateTime successTime,
             @JsonProperty("user_received_account") String userReceivedAccount,
-            @JsonProperty("amount") Amount amount
+            @JsonProperty("amount") @Nullable Amount amount
     ) {
-        /**
-         * 校验退款结果必填字段。
-         */
-        public Resource {
-            ValidationUtils.requireNotBlank(mchid, "mchid must not be blank");
-            ValidationUtils.requireNotBlank(outTradeNo, "outTradeNo must not be blank");
-            ValidationUtils.requireNotBlank(transactionId, "transactionId must not be blank");
-            ValidationUtils.requireNotBlank(outRefundNo, "outRefundNo must not be blank");
-            ValidationUtils.requireNotBlank(refundId, "refundId must not be blank");
-            ValidationUtils.requireNotBlank(refundStatus, "refundStatus must not be blank");
-            ValidationUtils.requireNonNull(userReceivedAccount,
-                    "userReceivedAccount must not be null");
-            ValidationUtils.requireNonNull(amount, "amount must not be null");
-        }
     }
 
     /**
@@ -180,18 +150,5 @@ public record RefundNotification(
             @JsonProperty("payer_total") long payerTotal,
             @JsonProperty("payer_refund") long payerRefund
     ) {
-        /**
-         * 校验退款通知金额。
-         */
-        public Amount {
-            WechatPayValidationUtils.requirePositive(total, "amount.total");
-            WechatPayValidationUtils.requirePositive(refund, "amount.refund");
-            ValidationUtils.requireTrue(refund <= total,
-                    "amount.refund must not exceed amount.total");
-            WechatPayValidationUtils.requireNonNegative(payerTotal,
-                    "amount.payerTotal");
-            WechatPayValidationUtils.requireNonNegative(payerRefund,
-                    "amount.payerRefund");
-        }
     }
 }

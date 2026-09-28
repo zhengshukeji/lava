@@ -26,12 +26,12 @@ public final class HttpStatusException extends RuntimeException {
     private final String responseBody;
 
     HttpStatusException(HttpResponse response) {
-        super("HTTP status " + response.getCode() + " from " + response.getMetadata().getUrl());
-        statusCode = response.getCode();
-        headers = response.getHeaders().redacted();
-        byte[] body = response.getBodyAsBytes();
+        super("HTTP status " + response.statusCode() + " from " + response.metadata().url());
+        statusCode = response.statusCode();
+        headers = response.headers().redacted();
+        byte[] body = response.bodyBytes();
         int length = Math.min(body.length, MAX_ERROR_BODY_BYTES);
-        responseBody = new String(body, 0, length, response.getCharset());
+        responseBody = new String(body, 0, length, response.charset());
     }
 
     public int statusCode() {

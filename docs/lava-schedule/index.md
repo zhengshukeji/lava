@@ -1,6 +1,6 @@
 # lava-schedule
 
-`lava-schedule` 是实例级、纯进程内调度器，提供一次性、固定频率和 Cron 触发，以及有界并发、misfire 和任务生命周期控制。
+`lava-schedule` 是实例级、纯进程内调度器，提供一次性、固定频率和 Cron 触发，以及有界并发和任务生命周期控制。
 
 ## 添加依赖
 
@@ -16,11 +16,6 @@
 ## 快速开始
 
 ```java
-ScheduleOptions options = ScheduleOptions.of(
-        ConcurrencyPolicy.serialQueue(20),
-        MisfirePolicy.FIRE_ONCE
-);
-
 try (LavaScheduler scheduler = LavaScheduler.builder()
         .executionBounds(64, 256)
         .shutdownTimeout(Duration.ofSeconds(20))
@@ -33,7 +28,7 @@ try (LavaScheduler scheduler = LavaScheduler.builder()
                     "0 0/5 * * * ?",
                     ZoneId.of("Asia/Shanghai")
             ),
-            options
+            ConcurrencyPolicy.SKIP_IF_RUNNING
     );
 }
 ```

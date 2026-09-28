@@ -1,6 +1,6 @@
 # 重试
 
-重试由不可变 `RetryPolicy` 和可复用 `RetryExecutor` 分开负责：策略定义“是否重试、等待多久、如何观测”，执行器负责实际调用和休眠。
+不可变且线程安全的 `RetryPolicy` 既定义“是否重试、等待多久、如何观测”，也直接执行操作：有返回值用 `call(...)`，无返回值用 `run(...)`。
 
 ## 基本用法
 
@@ -12,7 +12,7 @@ RetryPolicy<String> policy = RetryPolicy.<String>builder()
         .retryOnResult(String::isBlank)
         .build();
 
-String result = new RetryExecutor().execute(policy, service::load);
+String result = policy.call(service::load);
 ```
 
 `maxAttempts` 包含第一次调用。上例最多执行 4 次，而不是第一次加 4 次重试。
@@ -87,14 +87,14 @@ RetryPolicy<Void> policy = RetryPolicy.<Void>builder()
         .retryOnException(IOException.class)
         .build();
 
-new RetryExecutor().run(policy, service::refresh);
+policy.run(service::refresh);
 ```
 
 `run(...)` 只根据异常重试，不使用结果条件。
 
 ## 中断与幂等
 
-`InterruptedException` 永远不会被重试，并且执行器会恢复当前线程的中断标记。等待阶段被中断时也遵循相同规则。
+`InterruptedException` 永远不会被重试，并且会恢复当前线程的中断标记。等待阶段被中断时也遵循相同规则。
 
 ::: danger 不要重试非幂等操作
 创建订单、扣款、发放权益等操作只有在请求带稳定幂等键，或远端协议明确保证重复调用安全时才能自动重试。网络异常往往表示“结果未知”，不等于远端没有执行。

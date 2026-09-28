@@ -19,10 +19,26 @@ package com.zhengshuyun.lava.core.retry;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
 
 import java.time.Duration;
+import java.util.concurrent.Callable;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 /**
- * 不可变且线程安全的重试策略。
+ * 不可变且线程安全的重试策略，同时负责按策略执行操作。
+ *
+ * <pre>{@code
+ * RetryPolicy<String> policy = RetryPolicy.<String>builder()
+ *         .maxAttempts(3)
+ *         .fixedDelay(Duration.ofMillis(200))
+ *         .retryOnException(IOException.class)
+ *         .build();
+ *
+ * String response = policy.call(() -> fetchRemoteData());
+ * }</pre>
+ *
+ * <p>重试耗尽后原样抛出最后一次异常；{@link InterruptedException} 绝不重试，并先恢复线程中断标记。
+ *
+ * @param <T> 操作结果类型
  */
 public final class RetryPolicy<T> {
 
@@ -47,9 +63,9 @@ public final class RetryPolicy<T> {
     private final Predicate<? super T> resultCondition;
 
     /**
-     * 每次尝试结束后接收不可变状态的监听器。
+     * 每次尝试结束后接收观测结果的监听器；监听器抛出的异常会直接中止重试。
      */
-    private final RetryListener<T> listener;
+    private final Consumer<? super RetryAttempt<T>> listener;
 
     private RetryPolicy(Builder<T> builder) {
         this.maxAttempts = builder.maxAttempts;
@@ -60,7 +76,7 @@ public final class RetryPolicy<T> {
     }
 
     /**
-     * 创建构建器：默认重试所有 {@link Exception}、不按成功结果重试。
+     * 创建构建器：默认最多尝试 3 次、不等待、重试所有 {@link Exception}、不按成功结果重试。
      *
      * @param <T> 被执行操作的结果类型
      * @return 新的策略构建器
@@ -69,52 +85,101 @@ public final class RetryPolicy<T> {
         return new Builder<>();
     }
 
-    int maxAttempts() {
-        return maxAttempts;
+    /**
+     * 按策略执行有返回值的操作。
+     *
+     * @param action 待执行的操作
+     * @return 最后一次不再重试的成功结果
+     * @throws Exception 操作最终失败，或线程被中断
+     */
+    public T call(Callable<? extends T> action) throws Exception {
+        ValidationUtils.requireNonNull(action, "action");
+        return execute(action, true);
     }
 
-    RetryDelayStrategy delayStrategy() {
-        return delayStrategy;
+    /**
+     * 按策略执行无返回值的操作；只按异常决定是否重试，结果条件不参与判断。
+     *
+     * @param action 待执行的操作
+     * @throws Exception 操作最终失败，或线程被中断
+     */
+    public void run(CheckedRunnable action) throws Exception {
+        ValidationUtils.requireNonNull(action, "action");
+        execute(() -> {
+            action.run();
+            return null;
+        }, false);
     }
 
-    boolean shouldRetry(Exception failure) {
-        return exceptionCondition.test(failure);
+    private T execute(Callable<? extends T> action, boolean checkResult) throws Exception {
+        for (int attempt = 1; ; attempt++) {
+            boolean lastAttempt = attempt >= maxAttempts;
+            T result;
+            try {
+                result = action.call();
+            } catch (InterruptedException interrupted) {
+                // 中断代表调用方要求停止，恢复标记后立即终止，不再进入下一轮
+                Thread.currentThread().interrupt();
+                listener.accept(new RetryAttempt<>(
+                        attempt, maxAttempts, null, interrupted, false, Duration.ZERO));
+                throw interrupted;
+            } catch (Exception exception) {
+                // 最后一次尝试不再评估条件，避免条件本身的副作用或异常干扰最终结果
+                boolean willRetry = !lastAttempt && exceptionCondition.test(exception);
+                Duration delay = nextDelay(attempt, willRetry);
+                listener.accept(new RetryAttempt<>(
+                        attempt, maxAttempts, null, exception, willRetry, delay));
+                if (!willRetry) {
+                    throw exception;
+                }
+                sleep(delay);
+                continue;
+            }
+
+            boolean willRetry = checkResult && !lastAttempt && resultCondition.test(result);
+            Duration delay = nextDelay(attempt, willRetry);
+            listener.accept(new RetryAttempt<>(attempt, maxAttempts, result, null, willRetry, delay));
+            if (!willRetry) {
+                return result;
+            }
+            sleep(delay);
+        }
     }
 
-    boolean shouldRetryResult(T result) {
-        return resultCondition.test(result);
+    private Duration nextDelay(int attempt, boolean willRetry) {
+        if (!willRetry) {
+            return Duration.ZERO;
+        }
+        Duration delay = ValidationUtils.requireNonNull(
+                delayStrategy.delayAfter(attempt), "retry delay must not be null");
+        ValidationUtils.requireTrue(!delay.isNegative(), "retry delay must not be negative");
+        return delay;
     }
 
-    void notifyListener(RetryAttempt<T> attempt) {
-        listener.onAttempt(attempt);
+    private static void sleep(Duration delay) throws InterruptedException {
+        if (delay.isZero()) {
+            return;
+        }
+        try {
+            Thread.sleep(delay);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw interrupted;
+        }
     }
 
+    /**
+     * {@link RetryPolicy} 的构建器。
+     *
+     * @param <T> 被执行操作的结果类型
+     */
     public static final class Builder<T> {
 
-        /**
-         * 默认执行一次初始调用和最多两次重试。
-         */
         private int maxAttempts = 3;
-
-        /**
-         * 默认不在重试前等待。
-         */
         private RetryDelayStrategy delayStrategy = RetryDelayStrategy.none();
-
-        /**
-         * 默认所有 {@link Exception} 均可重试。
-         */
         private Predicate<? super Exception> exceptionCondition = failure -> true;
-
-        /**
-         * 默认正常返回后不再重试。
-         */
         private Predicate<? super T> resultCondition = result -> false;
-
-        /**
-         * 默认不处理尝试状态。
-         */
-        private RetryListener<T> listener = attempt -> {
+        private Consumer<? super RetryAttempt<T>> listener = attempt -> {
         };
 
         private Builder() {
@@ -124,19 +189,19 @@ public final class RetryPolicy<T> {
          * 设置总尝试次数，包含首次调用。
          *
          * @param maxAttempts 总尝试次数，至少为 1
+         * @return 当前构建器
          */
         public Builder<T> maxAttempts(int maxAttempts) {
-            if (maxAttempts < 1) {
-                throw new IllegalArgumentException("maxAttempts must be >= 1");
-            }
+            ValidationUtils.requireTrue(maxAttempts >= 1, "maxAttempts must be >= 1");
             this.maxAttempts = maxAttempts;
             return this;
         }
 
         /**
-         * 设置每次重试前的延迟策略。
+         * 设置每次重试前的延迟策略，常用策略见 {@link RetryDelayStrategy} 的静态工厂。
          *
          * @param delayStrategy 延迟计算策略
+         * @return 当前构建器
          */
         public Builder<T> delay(RetryDelayStrategy delayStrategy) {
             this.delayStrategy = ValidationUtils.requireNonNull(delayStrategy, "delayStrategy");
@@ -146,7 +211,8 @@ public final class RetryPolicy<T> {
         /**
          * 设置固定重试延迟。
          *
-         * @param delay 每次重试前的延迟
+         * @param delay 每次重试前的非负延迟
+         * @return 当前构建器
          */
         public Builder<T> fixedDelay(Duration delay) {
             return delay(RetryDelayStrategy.fixed(delay));
@@ -158,6 +224,7 @@ public final class RetryPolicy<T> {
          * @param initialDelay 首次重试前的非负延迟
          * @param multiplier   每次重试的延迟倍率，至少为 1
          * @param maxDelay     延迟上限，不能小于初始延迟
+         * @return 当前构建器
          */
         public Builder<T> exponentialBackoff(
                 Duration initialDelay, double multiplier, Duration maxDelay) {
@@ -165,13 +232,12 @@ public final class RetryPolicy<T> {
         }
 
         /**
-         * 设置带完全抖动的指数退避延迟策略。
-         *
-         * <p>每次延迟在当前退避上限内随机取值，适合打散大量并发调用方的重试时机。
+         * 设置带完全抖动的指数退避延迟策略，适合打散大量并发调用方的重试时机。
          *
          * @param initialDelay 首次重试前的非负延迟
          * @param multiplier   每次重试的延迟倍率，至少为 1
          * @param maxDelay     延迟上限，不能小于初始延迟
+         * @return 当前构建器
          */
         public Builder<T> exponentialBackoffWithFullJitter(
                 Duration initialDelay, double multiplier, Duration maxDelay) {
@@ -182,6 +248,7 @@ public final class RetryPolicy<T> {
          * 设置决定异常是否可重试的条件。
          *
          * @param condition 返回 true 时重试该异常
+         * @return 当前构建器
          */
         public Builder<T> retryOnException(Predicate<? super Exception> condition) {
             this.exceptionCondition = ValidationUtils.requireNonNull(condition, "condition");
@@ -189,9 +256,10 @@ public final class RetryPolicy<T> {
         }
 
         /**
-         * 设置指定异常类型及其子类型可重试。
+         * 仅重试指定异常类型及其子类型。
          *
          * @param type 可重试的异常类型
+         * @return 当前构建器
          */
         public Builder<T> retryOnException(Class<? extends Exception> type) {
             ValidationUtils.requireNonNull(type, "type");
@@ -199,9 +267,10 @@ public final class RetryPolicy<T> {
         }
 
         /**
-         * 设置决定成功结果是否仍需重试的条件。
+         * 设置决定成功结果是否仍需重试的条件，例如轮询到 "pending" 时继续。
          *
          * @param condition 返回 true 时继续重试
+         * @return 当前构建器
          */
         public Builder<T> retryOnResult(Predicate<? super T> condition) {
             this.resultCondition = ValidationUtils.requireNonNull(condition, "condition");
@@ -209,11 +278,12 @@ public final class RetryPolicy<T> {
         }
 
         /**
-         * 设置每次尝试完成后接收状态的监听器。
+         * 设置每次尝试完成后接收观测结果的监听器，常用于记录日志或指标。
          *
-         * @param listener 尝试状态监听器
+         * @param listener 尝试结果监听器
+         * @return 当前构建器
          */
-        public Builder<T> listener(RetryListener<T> listener) {
+        public Builder<T> listener(Consumer<? super RetryAttempt<T>> listener) {
             this.listener = ValidationUtils.requireNonNull(listener, "listener");
             return this;
         }

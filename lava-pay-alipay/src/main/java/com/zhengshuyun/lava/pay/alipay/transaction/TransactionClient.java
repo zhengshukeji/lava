@@ -9,7 +9,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.http.HttpMethod;
-import com.zhengshuyun.lava.pay.alipay.exception.AlipayException;
 import com.zhengshuyun.lava.pay.alipay.internal.*;
 import org.jspecify.annotations.Nullable;
 
@@ -30,16 +29,16 @@ public final class TransactionClient {
     private static final String CLOSE_PATH = "/v3/alipay/trade/close";
 
     /** 根客户端共享的传输层与关闭状态；当前业务客户端不单独持有 HTTP 资源。 */
-    private final AlipayRuntime runtime;
+    private final AlipayTransport transport;
 
     /**
      * 使用根客户端共享运行时创建交易查询与关闭入口。
      *
-     * @param runtime 已配置应用密钥、网关和 HTTP 客户端的共享运行时
-     * @throws IllegalArgumentException {@code runtime} 为 {@code null}
+     * @param transport 共享协议传输层
+     * @throws IllegalArgumentException {@code transport} 为 {@code null}
      */
-    public TransactionClient(AlipayRuntime runtime) {
-        this.runtime = ValidationUtils.requireNonNull(runtime, "runtime");
+    public TransactionClient(AlipayTransport transport) {
+        this.transport = ValidationUtils.requireNonNull(transport, "transport");
     }
 
     /**
@@ -47,7 +46,7 @@ public final class TransactionClient {
      *
      * @param outTradeNo 商户订单号，必须满足支付宝长度和字符约束
      * @return 已验签、已绑定商户订单号并完成协议字段解析的交易状态
-     * @throws IllegalArgumentException 商户订单号不符合约束
+     * @throws IllegalArgumentException 商户订单号为空白
      * @throws AlipayException 请求发送、支付宝业务处理、响应验签、标识核对或协议字段解析失败
      */
     public Trade queryByOutTradeNo(String outTradeNo) {
@@ -59,7 +58,7 @@ public final class TransactionClient {
      *
      * @param tradeNo 支付宝交易号，必须满足支付宝交易号格式
      * @return 已验签、已绑定支付宝交易号并完成协议字段解析的交易状态
-     * @throws IllegalArgumentException 支付宝交易号不符合约束
+     * @throws IllegalArgumentException 支付宝交易号为空白
      * @throws AlipayException 请求发送、支付宝业务处理、响应验签、标识核对或协议字段解析失败
      */
     public Trade queryByTradeNo(String tradeNo) {
@@ -76,7 +75,7 @@ public final class TransactionClient {
      */
     public Trade query(TradeQueryRequest request) {
         // 1. 将已校验查询条件编码为官方 V3 JSON 请求，并由传输层完成签名、发送和响应验签。
-        AlipayTransport transport = runtime.transport();
+        transport.ensureOpen();
         ValidationUtils.requireNonNull(request, "request must not be null");
         TradePayload response = transport.execute(
                 QUERY_PATH,
@@ -110,10 +109,10 @@ public final class TransactionClient {
                 response.buyerUserId,
                 response.buyerLogonId,
                 AlipayDateTimeUtils.parseOptional(response.sendPayDate, "send_pay_date"),
-                optionalMoney(response.buyerPayAmount, "buyer_pay_amount"),
-                optionalMoney(response.receiptAmount, "receipt_amount"),
-                optionalMoney(response.invoiceAmount, "invoice_amount"),
-                optionalMoney(response.pointAmount, "point_amount"),
+                AlipayMoneyUtils.parseOptional(response.buyerPayAmount, "buyer_pay_amount"),
+                AlipayMoneyUtils.parseOptional(response.receiptAmount, "receipt_amount"),
+                AlipayMoneyUtils.parseOptional(response.invoiceAmount, "invoice_amount"),
+                AlipayMoneyUtils.parseOptional(response.pointAmount, "point_amount"),
                 response.storeId,
                 fundBills
         );
@@ -124,7 +123,7 @@ public final class TransactionClient {
      *
      * @param outTradeNo 商户订单号，必须满足支付宝长度和字符约束
      * @return 已验签且订单标识与请求一致的关闭结果
-     * @throws IllegalArgumentException 商户订单号不符合约束
+     * @throws IllegalArgumentException 商户订单号为空白
      * @throws AlipayException 请求发送、支付宝业务处理、响应验签或标识核对失败
      */
     public TradeCloseResult closeByOutTradeNo(String outTradeNo) {
@@ -136,7 +135,7 @@ public final class TransactionClient {
      *
      * @param tradeNo 支付宝交易号，必须满足支付宝交易号格式
      * @return 已验签且订单标识与请求一致的关闭结果
-     * @throws IllegalArgumentException 支付宝交易号不符合约束
+     * @throws IllegalArgumentException 支付宝交易号为空白
      * @throws AlipayException 请求发送、支付宝业务处理、响应验签或标识核对失败
      */
     public TradeCloseResult closeByTradeNo(String tradeNo) {
@@ -156,7 +155,7 @@ public final class TransactionClient {
      */
     public TradeCloseResult close(TradeCloseRequest request) {
         // 1. 使用请求标识构造 V3 关单载荷，并取得已验签响应。
-        AlipayTransport transport = runtime.transport();
+        transport.ensureOpen();
         ValidationUtils.requireNonNull(request, "request must not be null");
         ClosePayload response = transport.execute(
                 CLOSE_PATH,
@@ -187,23 +186,9 @@ public final class TransactionClient {
      */
     private static Trade.FundBill toFundBill(FundBillPayload value) {
         return new Trade.FundBill(
-                AlipayValidationUtils.requireResponseText(
-                        value.fundChannel, "fund_channel"),
+                value.fundChannel,
                 AlipayMoneyUtils.parse(value.amount, "fund_bill_list.amount"),
-                optionalMoney(value.realAmount, "fund_bill_list.real_amount"));
-    }
-
-    /**
-     * 将支付宝可选元金额字符串严格转换为分。
-     *
-     * @param value 元金额字符串；字段未返回时为 {@code null}
-     * @param name  用于异常定位的协议字段名
-     * @return 分金额；输入为 {@code null} 时返回 {@code null}
-     * @throws com.zhengshuyun.lava.pay.alipay.exception.AlipayProtocolException
-     *         金额不是合法的非负元金额或超过支持范围
-     */
-    private static @Nullable Long optionalMoney(@Nullable String value, String name) {
-        return value == null ? null : AlipayMoneyUtils.parse(value, name);
+                AlipayMoneyUtils.parseOptional(value.realAmount, "fund_bill_list.real_amount"));
     }
 
     /**

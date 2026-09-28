@@ -5,7 +5,6 @@
 
 package com.zhengshuyun.lava.pay.alipay.internal;
 
-import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.http.HttpClient;
 import com.zhengshuyun.lava.http.HttpException;
 import com.zhengshuyun.lava.http.HttpHeaders;
@@ -13,7 +12,6 @@ import com.zhengshuyun.lava.http.HttpMethod;
 import com.zhengshuyun.lava.http.HttpRequest;
 import com.zhengshuyun.lava.http.HttpResponse;
 import com.zhengshuyun.lava.http.HttpUrlBuilder;
-import com.zhengshuyun.lava.http.OkHttpInterop;
 import com.zhengshuyun.lava.json.JsonCodec;
 import com.zhengshuyun.lava.json.JsonException;
 import com.zhengshuyun.lava.pay.alipay.exception.AlipayProtocolException;
@@ -26,16 +24,15 @@ import java.net.URI;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.time.Clock;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 支付宝公钥模式 OpenAPI V3 REST 传输层。
  */
-public final class AlipayTransport {
+public final class AlipayTransport implements AutoCloseable {
     /** OpenAPI V3 公钥模式固定使用的 RSA2 鉴权方案。 */
     private static final String V3_AUTH_SCHEME = "ALIPAY-SHA256withRSA";
     /** 承载应用 ID、时间戳、随机串和请求签名的鉴权头。 */
@@ -58,6 +55,10 @@ public final class AlipayTransport {
     private final PrivateKey appPrivateKey;
     /** 共享且已禁用隐式重试和重定向的 HTTP 客户端。 */
     private final HttpClient httpClient;
+    /** 是否由本传输层负责关闭 HTTP 客户端；调用方借入的客户端为 false。 */
+    private final boolean ownsHttpClient;
+    /** 根客户端关闭状态，保证关闭幂等并拒绝后续调用。 */
+    private final AtomicBoolean closed = new AtomicBoolean();
     /** 不包含接口路径、查询参数和片段的 OpenAPI 基础地址。 */
     private final URI baseUrl;
     /** 生成协议时间戳所使用的时钟。 */
@@ -68,12 +69,13 @@ public final class AlipayTransport {
     private final AlipayResponseParser responseParser;
 
     /**
-     * 创建内部传输层，并再次校验域名、密钥和 HTTP 安全配置以防绕过根客户端构建器。
+     * 创建内部传输层；参数已由根客户端构建器校验。
      *
      * @param appId           应用 ID
      * @param appPrivateKey   应用私钥
      * @param alipayPublicKey 支付宝公钥
      * @param httpClient      HTTP 客户端
+     * @param ownsHttpClient  是否由本传输层负责关闭 HTTP 客户端
      * @param baseUrl         OpenAPI 基础地址
      * @param clock           协议时钟
      * @param jsonCodec       JSON 编解码器
@@ -83,30 +85,19 @@ public final class AlipayTransport {
             PrivateKey appPrivateKey,
             PublicKey alipayPublicKey,
             HttpClient httpClient,
+            boolean ownsHttpClient,
             URI baseUrl,
             Clock clock,
             JsonCodec jsonCodec
     ) {
-        this.appId = AlipayValidationUtils.requireAppId(appId);
-        this.appPrivateKey = AlipayKeyUtils.requirePrivateKey(appPrivateKey);
-        PublicKey checkedPublicKey = AlipayKeyUtils.requirePublicKey(alipayPublicKey);
-        this.httpClient = requireSafeHttpClient(httpClient);
-        this.baseUrl = AlipayValidationUtils.requireBaseUrl(baseUrl);
-        this.clock = ValidationUtils.requireNonNull(clock, "clock must not be null");
-        this.jsonCodec = ValidationUtils.requireNonNull(
-                jsonCodec,
-                "jsonCodec must not be null"
-        );
-        responseParser = new AlipayResponseParser(checkedPublicKey, this.jsonCodec);
-    }
-
-    /**
-     * 返回支付宝业务时区下的当前本地时间。
-     *
-     * @return GMT+8 当前时间
-     */
-    public LocalDateTime currentDateTime() {
-        return LocalDateTime.ofInstant(clock.instant(), ZoneOffset.ofHours(8));
+        this.appId = appId;
+        this.appPrivateKey = appPrivateKey;
+        this.httpClient = httpClient;
+        this.ownsHttpClient = ownsHttpClient;
+        this.baseUrl = baseUrl;
+        this.clock = clock;
+        this.jsonCodec = jsonCodec;
+        responseParser = new AlipayResponseParser(alipayPublicKey, jsonCodec);
     }
 
     /**
@@ -127,6 +118,7 @@ public final class AlipayTransport {
             Map<String, String> queryParams,
             Class<T> responseType
     ) {
+        ensureOpen();
         // 1. 先构造最终发送 URL 和原始 JSON，签名必须覆盖完全相同的编码结果和字节内容。
         URI endpoint = endpoint(path, queryParams);
         String body = requestBody == null ? "" : encode(requestBody);
@@ -139,7 +131,7 @@ public final class AlipayTransport {
                 + ",nonce=" + nonce
                 + ",timestamp=" + clock.millis();
         String signatureSource = authString + "\n"
-                + method.getName() + "\n"
+                + method.name() + "\n"
                 + requestUri + "\n"
                 + body + "\n";
         String authorization = V3_AUTH_SCHEME + " " + authString
@@ -153,19 +145,14 @@ public final class AlipayTransport {
             builder.jsonBody(body);
         }
 
-        // 3. 发送失败只暴露脱敏传输元数据；响应正文必须先验签，之后才允许进入错误或业务解析。
+        // 3. 发送失败包装为领域异常并保留原始 cause；响应正文必须先验签，之后才允许进入错误或业务解析。
         HttpResponse response;
         try {
             response = httpClient.send(builder.build());
         } catch (HttpException exception) {
-            throw new AlipayTransportException(
-                    exception.getKind(),
-                    exception.getMethod(),
-                    exception.getUrl(),
-                    exception.getTransportCauseType()
-            );
+            throw new AlipayTransportException(exception);
         }
-        HttpHeaders responseHeaders = response.getHeaders();
+        HttpHeaders responseHeaders = response.headers();
         String responseSignature = signatureHeader(responseHeaders, HEADER_SIGNATURE);
         String responseTimestamp = signatureHeader(responseHeaders, HEADER_TIMESTAMP);
         String responseNonce = signatureHeader(responseHeaders, HEADER_NONCE);
@@ -175,16 +162,16 @@ public final class AlipayTransport {
                     responseTimestamp,
                     responseNonce
             );
-            String traceId = response.getHeader(HEADER_TRACE_ID);
+            String traceId = response.header(HEADER_TRACE_ID);
             if (traceId == null) {
                 // 部分接口元数据省略了 trace 与 id 之间的连字符，兼容读取但始终优先公共协议名称。
-                traceId = response.getHeader(HEADER_TRACE_ID_COMPATIBLE);
+                traceId = response.header(HEADER_TRACE_ID_COMPATIBLE);
             }
             try {
                 throw responseParser.parseError(
                         response.statusCode(),
                         hasSignatureMetadata,
-                        response.getBodyAsBytes(),
+                        response.bodyBytes(),
                         responseSignature,
                         responseTimestamp,
                         responseNonce,
@@ -192,11 +179,11 @@ public final class AlipayTransport {
                 );
             } catch (AlipayProtocolException exception) {
                 // 官方 V3 SDK允许错误响应不带签名；无法安全结构化时仅保留 HTTP 状态。
-                throw new AlipayTransportException(response.statusCode());
+                throw new AlipayTransportException(response.statusCode(), exception);
             }
         }
         return responseParser.parseSuccess(
-                response.getBodyAsBytes(),
+                response.bodyBytes(),
                 responseType,
                 responseSignature,
                 responseTimestamp,
@@ -230,7 +217,7 @@ public final class AlipayTransport {
         try {
             return jsonCodec.write(value);
         } catch (JsonException exception) {
-            throw new AlipayProtocolException("无法编码支付宝请求 JSON");
+            throw new AlipayProtocolException("无法编码支付宝请求 JSON", exception);
         }
     }
 
@@ -262,27 +249,23 @@ public final class AlipayTransport {
     }
 
     /**
-     * 校验借入 HTTP 客户端不会隐式重试或跟随重定向，避免签名请求被透明重放或改发其他地址。
+     * 确保根客户端仍处于可用状态。
      *
-     * @param value 调用方托管且已完成基础配置的 HTTP 客户端
-     * @return 通过安全配置校验的原客户端实例；本方法不接管其生命周期
-     * @throws IllegalArgumentException 客户端为空、启用了连接失败重试、普通重定向或跨协议重定向
+     * @throws IllegalStateException 根客户端已经关闭
      */
-    private static HttpClient requireSafeHttpClient(HttpClient value) {
-        ValidationUtils.requireNonNull(value, "httpClient must not be null");
-        ValidationUtils.requireTrue(
-                !OkHttpInterop.unwrap(value).retryOnConnectionFailure(),
-                "httpClient must disable connection failure retries"
-        );
-        ValidationUtils.requireTrue(
-                !OkHttpInterop.unwrap(value).followRedirects(),
-                "httpClient must disable redirects"
-        );
-        ValidationUtils.requireTrue(
-                !OkHttpInterop.unwrap(value).followSslRedirects(),
-                "httpClient must disable cross-protocol redirects"
-        );
-        return value;
+    public void ensureOpen() {
+        if (closed.get()) {
+            throw new IllegalStateException("AlipayClient is closed");
+        }
     }
 
+    /**
+     * 关闭传输层；仅关闭本传输层拥有的 HTTP 客户端，可重复调用。
+     */
+    @Override
+    public void close() {
+        if (closed.compareAndSet(false, true) && ownsHttpClient) {
+            httpClient.close();
+        }
+    }
 }

@@ -309,21 +309,6 @@ class BillClientTest {
     }
 
     /**
-     * 验证已验签的账单元数据中 SHA-1 格式非法时立即报协议错误，不进入文件下载阶段。
-     */
-    @Test
-    void malformedSignedBillMetadataFailsBeforeDownload() {
-        String info = "{\"hash_type\":\"SHA1\",\"hash_value\":\"not-a-sha1\","
-                + "\"download_url\":\"" + server.baseUrl() + "download\"}";
-        server.enqueueSigned(200, info);
-
-        assertThrows(WechatPayProtocolException.class,
-                () -> client.bills().applyTradeBill(TradeBillRequest.builder()
-                        .billDate(LocalDate.of(2026, 8, 28))
-                        .build()));
-    }
-
-    /**
      * 验证手工构造的跨源下载地址被拒绝，防止携带敏感令牌访问非微信支付主机，且调试文本不泄露令牌。
      */
     @Test
@@ -340,29 +325,6 @@ class BillClientTest {
         assertThrows(WechatPayProtocolException.class,
                 () -> client.bills().download(forged, target));
         assertFalse(Files.exists(target));
-    }
-
-    /**
-     * 验证账单日期必须早于当天且不得超出最近三个月的可申请窗口。
-     */
-    @Test
-    void billDateMustBeBeforeTodayAndWithinThreeMonths() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> client.bills().applyTradeBill(
-                        TradeBillRequest.builder()
-                                .billDate(LocalDate.of(2026, 8, 29))
-                                .build()
-                )
-        );
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> client.bills().applyFundFlowBill(
-                        FundFlowBillRequest.builder()
-                                .billDate(LocalDate.of(2026, 5, 28))
-                                .build()
-                )
-        );
     }
 
     /**

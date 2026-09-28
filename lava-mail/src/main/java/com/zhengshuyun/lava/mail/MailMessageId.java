@@ -33,7 +33,7 @@ public record MailMessageId(String folder, long uidValidity, long uid) {
      * @param uid         消息 UID
      */
     public MailMessageId {
-        folder = PasswordCredential.requireNonBlankWithoutControls(folder, "folder");
+        folder = MailValidationUtils.requireNonBlankWithoutControls(folder, "folder");
         if (!validUid(uidValidity) || !validUid(uid)) {
             throw new IllegalArgumentException(
                     "uidValidity and uid must be unsigned 32-bit positive values");

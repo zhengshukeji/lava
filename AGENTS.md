@@ -22,7 +22,7 @@
 
 ## 简道云接入
 
-- `lava-jiandaoyun` 按「根客户端 + 领域子客户端」组织：Bearer 鉴权、错误映射和 JSON 编解码集中在 internal 传输层；新增领域必须复用根客户端与共享运行时，不复制协议实现。
+- `lava-jiandaoyun` 按「根客户端 + 领域子客户端」组织：Bearer 鉴权、错误映射和 JSON 编解码集中在 internal 传输层；新增领域必须复用根客户端与共享传输层（传输层同时持有关闭状态与 HTTP 客户端所有权），不复制协议实现。
 - 领域子客户端按开放文档分类分包（如 `application`、`form`），类名 = 包名驼峰 + Client，列表类接口的分页参数用请求对象 + Builder 表达。
 - 简道云 v6 起开放 API 只增不减出入参，所有响应模型必须 `@JsonIgnoreProperties(ignoreUnknown = true)`。
 - 上游命名陷阱：表单字段的 `name` 是别名（无别名时为字段标识），`widgetName` 才是控件 ID，不要按字面含义误用。

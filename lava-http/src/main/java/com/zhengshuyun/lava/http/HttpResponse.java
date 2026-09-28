@@ -86,18 +86,15 @@ public final class HttpResponse {
      *
      * @return 状态码
      */
-    public int getCode() {
-        return code;
-    }
-
     public int statusCode() {
         return code;
     }
 
-    public String getMessage() {
-        return message;
-    }
-
+    /**
+     * 返回 HTTP 状态文本；HTTP/2 响应通常为空字符串。
+     *
+     * @return 状态文本
+     */
     public String statusMessage() {
         return message;
     }
@@ -111,6 +108,11 @@ public final class HttpResponse {
         return code >= 200 && code < 300;
     }
 
+    /**
+     * 判断响应状态码是否为 3xx。
+     *
+     * @return 3xx 时返回 true
+     */
     public boolean isRedirect() {
         return code >= 300 && code < 400;
     }
@@ -120,40 +122,75 @@ public final class HttpResponse {
      *
      * @return 响应头
      */
-    public HttpHeaders getHeaders() {
-        return headers;
-    }
-
     public HttpHeaders headers() {
         return headers;
     }
 
-    public List<String> getHeaders(String name) {
+    /**
+     * 返回指定名称的全部响应头值。
+     *
+     * @param name 响应头名称，不区分大小写
+     * @return 响应头值列表
+     */
+    public List<String> headers(String name) {
         return headers.values(name);
     }
 
-    public @Nullable String getHeader(String name) {
+    /**
+     * 返回指定名称的最后一个响应头值。
+     *
+     * @param name 响应头名称，不区分大小写
+     * @return 响应头值；不存在时为 null
+     */
+    public @Nullable String header(String name) {
         return headers.get(name);
     }
 
-    public String getHeaderOrDefault(String name, String defaultValue) {
-        String value = getHeader(name);
+    /**
+     * 返回指定名称的最后一个响应头值，不存在时返回默认值。
+     *
+     * @param name         响应头名称，不区分大小写
+     * @param defaultValue 默认值
+     * @return 响应头值或默认值
+     */
+    public String header(String name, String defaultValue) {
+        String value = header(name);
         return value == null ? defaultValue : value;
     }
 
-    public @Nullable String getContentType() {
-        return getHeader(HttpHeaderNames.CONTENT_TYPE);
+    /**
+     * 返回 {@code Content-Type} 响应头。
+     *
+     * @return 媒体类型；不存在时为 null
+     */
+    public @Nullable String contentType() {
+        return header(HttpHeaderNames.CONTENT_TYPE);
     }
 
-    public long getContentLength() {
+    /**
+     * 返回已缓冲正文的字节数。
+     *
+     * @return 正文字节数
+     */
+    public long contentLength() {
         return body.length;
     }
 
-    public @Nullable String getLocation() {
-        return getHeader(HttpHeaderNames.LOCATION);
+    /**
+     * 返回 {@code Location} 响应头，常用于未自动跟随的重定向。
+     *
+     * @return 跳转地址；不存在时为 null
+     */
+    public @Nullable String location() {
+        return header(HttpHeaderNames.LOCATION);
     }
 
-    public Map<String, String> getCookies() {
+    /**
+     * 解析全部 {@code Set-Cookie} 响应头中的名称与值，同名 Cookie 以最后一个为准。
+     *
+     * @return 不可变的 Cookie 名称到值的映射
+     */
+    public Map<String, String> cookies() {
         Map<String, String> result = new LinkedHashMap<>();
         for (String header : headers.values(HttpHeaderNames.SET_COOKIE)) {
             int semicolon = header.indexOf(';');
@@ -162,6 +199,7 @@ public final class HttpResponse {
             if (equals > 0) {
                 String name = pair.substring(0, equals).strip();
                 String value = pair.substring(equals + 1).strip();
+                // RFC 6265 允许 Cookie 值带双引号，返回时去掉
                 if (value.length() >= 2 && value.charAt(0) == '"'
                         && value.charAt(value.length() - 1) == '"') {
                     value = value.substring(1, value.length() - 1);
@@ -172,60 +210,68 @@ public final class HttpResponse {
         return Map.copyOf(result);
     }
 
-    public @Nullable String getCookie(String name) {
-        return getCookies().get(
-                ValidationUtils.requireNotBlank(name, "cookie name must not be blank"));
+    /**
+     * 返回指定名称的 Cookie 值。
+     *
+     * @param name Cookie 名称
+     * @return Cookie 值；不存在时为 null
+     */
+    public @Nullable String cookie(String name) {
+        return cookies().get(ValidationUtils.requireNotBlank(name, "cookie name must not be blank"));
     }
 
     /**
-     * 返回响应正文的防御性副本。
+     * 返回正文字节的副本。
      *
-     * @return 正文字节数组副本
+     * @return 正文字节
      */
-    public byte[] getBodyAsBytes() {
+    public byte[] bodyBytes() {
         return body.clone();
     }
 
-    public byte[] bodyBytes() {
-        return getBodyAsBytes();
-    }
-
     /**
-     * 使用响应字符集将正文解码为字符串。
+     * 按响应字符集解码正文。
      *
      * @return 正文文本
      */
-    public String getBodyAsString() {
+    public String bodyString() {
         return new String(body, charset);
     }
 
-    public String bodyString() {
-        return getBodyAsString();
-    }
-
     /**
-     * 使用指定字符集将正文解码为字符串。
+     * 按指定字符集解码正文，用于服务端声明的字符集不可信的场景。
      *
-     * @param charset 解码使用的字符集
+     * @param charset 解码字符集
      * @return 正文文本
      */
-    public String getBodyAsString(Charset charset) {
+    public String bodyString(Charset charset) {
         return new String(body, ValidationUtils.requireNonNull(charset, "charset must not be null"));
     }
 
-    public Charset getCharset() {
+    /**
+     * 返回从 {@code Content-Type} 推断的字符集，缺省为 UTF-8。
+     *
+     * @return 响应字符集
+     */
+    public Charset charset() {
         return charset;
     }
 
-    public HttpCallMetadata getMetadata() {
-        return metadata;
-    }
-
+    /**
+     * 返回已脱敏的调用元数据。
+     *
+     * @return 调用元数据
+     */
     public HttpCallMetadata metadata() {
         return metadata;
     }
 
-    public String getProtocol() {
+    /**
+     * 返回协商的 HTTP 协议，例如 {@code http/1.1}。
+     *
+     * @return 协议名称
+     */
+    public String protocol() {
         return protocol;
     }
 

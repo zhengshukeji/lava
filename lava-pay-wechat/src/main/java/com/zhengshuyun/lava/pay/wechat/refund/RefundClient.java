@@ -19,7 +19,6 @@ package com.zhengshuyun.lava.pay.wechat.refund;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.pay.wechat.exception.WechatPaySecurityException;
 import com.zhengshuyun.lava.pay.wechat.exception.WechatPaySecurityFailure;
-import com.zhengshuyun.lava.pay.wechat.internal.WechatPayRuntime;
 import com.zhengshuyun.lava.pay.wechat.internal.WechatPayTransport;
 import com.zhengshuyun.lava.pay.wechat.internal.WechatPayValidationUtils;
 import org.jspecify.annotations.Nullable;
@@ -32,15 +31,15 @@ public final class RefundClient {
     private static final String REFUND_PATH = "/v3/refund/domestic/refunds";
 
     /** 根客户端共享的签名传输层与关闭状态。 */
-    private final WechatPayRuntime runtime;
+    private final WechatPayTransport transport;
 
     /**
      * 由根客户端创建退款入口。
      *
-     * @param runtime 共享运行时
+     * @param transport 共享协议传输层
      */
-    public RefundClient(WechatPayRuntime runtime) {
-        this.runtime = ValidationUtils.requireNonNull(runtime, "runtime");
+    public RefundClient(WechatPayTransport transport) {
+        this.transport = ValidationUtils.requireNonNull(transport, "transport");
     }
 
     /**
@@ -50,7 +49,7 @@ public final class RefundClient {
      * @return 已验签退款单
      */
     public Refund apply(RefundRequest request) {
-        WechatPayTransport transport = runtime.transport();
+        transport.ensureOpen();
         ValidationUtils.requireNonNull(request, "request must not be null");
         Refund refund = transport.post(transport.endpoint(REFUND_PATH), request,
                 Refund.class);
@@ -65,7 +64,7 @@ public final class RefundClient {
      * @return 已验签退款单
      */
     public Refund queryByOutRefundNo(String outRefundNo) {
-        WechatPayTransport transport = runtime.transport();
+        transport.ensureOpen();
         outRefundNo = WechatPayValidationUtils.requireOutRefundNo(outRefundNo);
         Refund refund = transport.get(transport.endpoint(REFUND_PATH, outRefundNo, ""),
                 Refund.class);
@@ -90,7 +89,8 @@ public final class RefundClient {
         }
 
         // 2. 同一退款单号重试时微信可能返回已受理结果，金额必须仍与本次请求完全一致。
-        if (request.amount().refund() != refund.amount().refund()
+        if (refund.amount() == null
+                || request.amount().refund() != refund.amount().refund()
                 || request.amount().total() != refund.amount().total()) {
             throw new WechatPaySecurityException(WechatPaySecurityFailure.RESPONSE_MISMATCH);
         }

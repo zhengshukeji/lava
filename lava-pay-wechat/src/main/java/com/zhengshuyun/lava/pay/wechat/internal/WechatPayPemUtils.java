@@ -17,93 +17,89 @@
 package com.zhengshuyun.lava.pay.wechat.internal;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
-import com.zhengshuyun.lava.crypto.CryptoUtils;
 import com.zhengshuyun.lava.crypto.CryptoException;
+import com.zhengshuyun.lava.crypto.PemKeyUtils;
+import com.zhengshuyun.lava.crypto.RsaSignatureUtils;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
+import java.security.Key;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.RSAKey;
-import java.util.Arrays;
-import java.util.HexFormat;
 import java.util.Locale;
 
 /**
- * 微信支付使用的 RSA PEM 和 X.509 商户证书解析工具。
+ * 微信支付商户私钥、微信支付公钥与商户证书的读取和校验。
  */
 public final class WechatPayPemUtils {
-    /** 单个 PEM 文本文件允许读取的最大大小，单位为字节。 */
-    private static final int MAX_PEM_BYTES = 64 * 1024;
-    /** 微信支付签名与验签密钥允许的最小 RSA 模数位数。 */
+
+    /**
+     * APIv3 签名要求的最小 RSA 模长。
+     */
     private static final int MIN_RSA_BITS = 2048;
 
-    /** 禁止实例化微信支付 PEM 工具。 */
     private WechatPayPemUtils() {
         throw new UnsupportedOperationException("Utility class");
     }
 
     /**
-     * 从 PKCS#8 PEM 文件读取 RSA 私钥。
+     * 从 PEM 文件读取商户 API 私钥。
      *
      * @param path 私钥文件
      * @return RSA 私钥
+     * @throws IllegalArgumentException 文件不可读或内容不是有效的 RSA2048 私钥
      */
     public static PrivateKey readPrivateKey(Path path) {
         try {
-            PrivateKey key = CryptoUtils.pemReadRsaPrivateKey(readPem(path));
-            requireRsaKey(key, "merchantPrivateKey");
-            return key;
+            return requirePrivateKey(PemKeyUtils.readRsaPrivateKey(readText(path, "merchantPrivateKey")));
         } catch (CryptoException exception) {
-            throw new IllegalArgumentException("merchantPrivateKey is not a valid PKCS#8 RSA key");
+            throw new IllegalArgumentException("merchantPrivateKey is not a valid PKCS#8 RSA key", exception);
         }
     }
 
     /**
-     * 从 X.509 SubjectPublicKeyInfo PEM 文件读取 RSA 公钥。
+     * 从 PEM 文件读取微信支付公钥。
      *
      * @param path 公钥文件
      * @return RSA 公钥
+     * @throws IllegalArgumentException 文件不可读或内容不是有效的 RSA2048 公钥
      */
     public static PublicKey readPublicKey(Path path) {
         try {
-            PublicKey key = CryptoUtils.pemReadRsaPublicKey(readPem(path));
-            requireRsaKey(key, "wechatPayPublicKey");
-            return key;
+            return requirePublicKey(PemKeyUtils.readRsaPublicKey(readText(path, "wechatPayPublicKey")));
         } catch (CryptoException exception) {
-            throw new IllegalArgumentException("wechatPayPublicKey is not a valid X.509 RSA key");
+            throw new IllegalArgumentException("wechatPayPublicKey is not a valid X.509 RSA key", exception);
         }
     }
 
     /**
-     * 读取商户 API X.509 证书。
+     * 从 PEM 文件读取商户 API 证书，并校验其在有效期内。
      *
-     * @param path 证书 PEM 文件
+     * @param path 证书文件
      * @return 商户证书
+     * @throws IllegalArgumentException 文件不可读、不是 X.509 证书或证书已过期
      */
     public static X509Certificate readCertificate(Path path) {
-        byte[] pem = readPem(path).getBytes(StandardCharsets.UTF_8);
-        try (ByteArrayInputStream input = new ByteArrayInputStream(pem)) {
-            X509Certificate certificate = (X509Certificate) CertificateFactory
-                    .getInstance("X.509").generateCertificate(input);
-            requireRsaKey(certificate.getPublicKey(), "merchantCertificate");
-            certificate.checkValidity();
-            return certificate;
-        } catch (GeneralSecurityException | IOException exception) {
-            throw new IllegalArgumentException("merchantCertificate is not a valid current X.509 certificate");
-        } finally {
-            Arrays.fill(pem, (byte) 0);
+        ValidationUtils.requireNonNull(path, "merchantCertificate path must not be null");
+        try (InputStream input = Files.newInputStream(path)) {
+            X509Certificate certificate = (X509Certificate) CertificateFactory.getInstance("X.509")
+                    .generateCertificate(input);
+            return requireMerchantCertificate(certificate);
+        } catch (IOException | GeneralSecurityException exception) {
+            throw new IllegalArgumentException("merchantCertificate is not a valid X.509 certificate: " + path,
+                    exception);
         }
     }
 
     /**
-     * 将商户证书序列号转换为微信支付要求的大写十六进制文本。
+     * 返回证书序列号的大写十六进制形式，即请求签名中的 {@code serial_no}。
      *
      * @param certificate 商户证书
      * @return 证书序列号
@@ -114,100 +110,76 @@ public final class WechatPayPemUtils {
     }
 
     /**
-     * 校验调用方传入的 JCA 私钥确实适用于微信支付 RSA2048 签名。
+     * 校验商户私钥为至少 2048 位的 RSA 密钥。
      *
      * @param privateKey 私钥
-     * @return 原私钥
+     * @return 原值
      */
     public static PrivateKey requirePrivateKey(PrivateKey privateKey) {
-        requireRsaKey(ValidationUtils.requireNonNull(privateKey,
-                "merchantPrivateKey must not be null"), "merchantPrivateKey");
+        requireRsa2048(ValidationUtils.requireNonNull(privateKey, "merchantPrivateKey must not be null"),
+                "merchantPrivateKey");
         return privateKey;
     }
 
     /**
-     * 校验调用方传入的 JCA 公钥确实适用于微信支付 RSA2048 验签。
+     * 校验微信支付公钥为至少 2048 位的 RSA 密钥。
      *
      * @param publicKey 公钥
-     * @return 原公钥
+     * @return 原值
      */
     public static PublicKey requirePublicKey(PublicKey publicKey) {
-        requireRsaKey(ValidationUtils.requireNonNull(publicKey,
-                "wechatPayPublicKey must not be null"), "wechatPayPublicKey");
+        requireRsa2048(ValidationUtils.requireNonNull(publicKey, "wechatPayPublicKey must not be null"),
+                "wechatPayPublicKey");
         return publicKey;
     }
 
     /**
-     * 校验调用方传入的商户 API 证书使用 RSA2048 或更高强度公钥。
+     * 校验商户证书使用 RSA2048 公钥且在有效期内。
      *
-     * @param certificate 商户 API 证书
-     * @return 原证书
+     * @param certificate 商户证书
+     * @return 原值
      */
     public static X509Certificate requireMerchantCertificate(X509Certificate certificate) {
-        X509Certificate checked = ValidationUtils.requireNonNull(certificate,
-                "merchantCertificate must not be null");
-        requireRsaKey(checked.getPublicKey(), "merchantCertificate");
+        ValidationUtils.requireNonNull(certificate, "merchantCertificate must not be null");
+        requireRsa2048(certificate.getPublicKey(), "merchantCertificate");
         try {
-            checked.checkValidity();
+            certificate.checkValidity();
         } catch (GeneralSecurityException exception) {
-            throw new IllegalArgumentException("merchantCertificate must be currently valid");
+            throw new IllegalArgumentException("merchantCertificate must be currently valid", exception);
         }
-        return checked;
+        return certificate;
     }
 
     /**
-     * 通过一次内存签名验证商户证书与私钥是否配对。
+     * 用私钥签名一段探测数据再用证书公钥验签，确认两者配对，避免上线后每个请求都签名失败。
      *
-     * @param privateKey 商户私钥
+     * @param privateKey  商户私钥
      * @param certificate 商户证书
+     * @throws IllegalArgumentException 私钥与证书不匹配
      */
     public static void requireKeyPair(PrivateKey privateKey, X509Certificate certificate) {
-        byte[] probe = HexFormat.of().parseHex("6c6176612d7061792d776563686174");
+        byte[] probe = "lava-pay-wechat".getBytes(StandardCharsets.US_ASCII);
         try {
-            byte[] signature = CryptoUtils.rsaSha256Sign(privateKey, probe);
-            try {
-                ValidationUtils.requireTrue(CryptoUtils.rsaSha256Verify(
-                                certificate.getPublicKey(), probe, signature),
-                        "merchantPrivateKey does not match merchantCertificate");
-            } finally {
-                Arrays.fill(signature, (byte) 0);
-            }
+            byte[] signature = RsaSignatureUtils.sha256(privateKey, probe);
+            ValidationUtils.requireTrue(RsaSignatureUtils.verifySha256(certificate.getPublicKey(), probe, signature),
+                    "merchantPrivateKey does not match merchantCertificate");
         } catch (CryptoException exception) {
-            throw new IllegalArgumentException("could not validate merchant key pair");
-        } finally {
-            Arrays.fill(probe, (byte) 0);
+            throw new IllegalArgumentException("could not validate merchant key pair", exception);
         }
     }
 
-    /**
-     * 在大小限制内读取 ASCII PEM 文件。
-     *
-     * @param path 待读取的普通 PEM 文件路径
-     * @return 不超过 64 KiB 的 ASCII PEM 文本
-     */
-    private static String readPem(Path path) {
-        ValidationUtils.requireNonNull(path, "PEM path must not be null");
+    private static String readText(Path path, String name) {
+        ValidationUtils.requireNonNull(path, name + " path must not be null");
         try {
-            ValidationUtils.requireTrue(Files.isRegularFile(path),
-                    "PEM path must be a regular file");
-            long size = Files.size(path);
-            ValidationUtils.requireTrue(size > 0 && size <= MAX_PEM_BYTES,
-                    "PEM file size is out of range");
             return Files.readString(path, StandardCharsets.US_ASCII);
         } catch (IOException exception) {
-            throw new IllegalArgumentException("could not read PEM file");
+            throw new IllegalArgumentException("could not read " + name + " file: " + path, exception);
         }
     }
 
-    /**
-     * 校验密钥使用 RSA 算法且模数不小于 2048 位。
-     *
-     * @param key 待校验的 JCA 密钥
-     * @param name 用于报错的配置项名称
-     */
-    private static void requireRsaKey(java.security.Key key, String name) {
-        ValidationUtils.requireTrue("RSA".equalsIgnoreCase(key.getAlgorithm()),
-                name + " must use RSA");
+    private static void requireRsa2048(Key key, String name) {
+        ValidationUtils.requireTrue("RSA".equalsIgnoreCase(key.getAlgorithm()), name + " must use RSA");
+        // 硬件密钥等场景可能不暴露模长，此时交由签名阶段校验
         if (key instanceof RSAKey rsaKey) {
             ValidationUtils.requireTrue(rsaKey.getModulus().bitLength() >= MIN_RSA_BITS,
                     name + " must use at least RSA2048");

@@ -23,8 +23,6 @@ import org.junit.jupiter.api.Test;
 
 import javax.net.ssl.SSLHandshakeException;
 import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.net.ServerSocket;
 import java.net.UnknownHostException;
 import java.nio.charset.Charset;
@@ -62,33 +60,33 @@ class HttpClientTest {
                     .build();
 
             HttpResponse response = client.send(request);
-            assertEquals(200, response.getCode());
+            assertEquals(200, response.statusCode());
             assertTrue(response.isSuccessful());
             assertFalse(response.isRedirect());
-            assertTrue(response.getBodyAsString().startsWith("POST|"));
-            assertTrue(response.getBodyAsString().contains("q=%E4%B8%AD%E6%96%87%20value"));
-            assertTrue(response.getBodyAsString().contains("tag=a&tag=b"));
-            assertTrue(response.getBodyAsString().endsWith("|works|payload"));
-            assertArrayEquals(response.getBodyAsString().getBytes(StandardCharsets.UTF_8),
-                    response.getBodyAsBytes());
-            assertEquals("text/plain; charset=utf-8", response.getContentType());
-            assertNull(response.getLocation());
-            assertEquals("missing", response.getHeaderOrDefault("No-Such", "missing"));
-            assertEquals("http/1.1", response.getProtocol());
+            assertTrue(response.bodyString().startsWith("POST|"));
+            assertTrue(response.bodyString().contains("q=%E4%B8%AD%E6%96%87%20value"));
+            assertTrue(response.bodyString().contains("tag=a&tag=b"));
+            assertTrue(response.bodyString().endsWith("|works|payload"));
+            assertArrayEquals(response.bodyString().getBytes(StandardCharsets.UTF_8),
+                    response.bodyBytes());
+            assertEquals("text/plain; charset=utf-8", response.contentType());
+            assertNull(response.location());
+            assertEquals("missing", response.header("No-Such", "missing"));
+            assertEquals("http/1.1", response.protocol());
 
-            HttpCallMetadata metadata = response.getMetadata();
-            assertNotNull(metadata.getRequestId());
-            assertTrue(metadata.getDuration().compareTo(Duration.ZERO) >= 0);
-            assertEquals(metadata.getDurationMillis(), metadata.getDuration().toMillis());
-            assertEquals("[REDACTED]", metadata.getRequestHeaders().get("Authorization"));
-            assertFalse(metadata.getUrl().contains("url-secret"));
+            HttpCallMetadata metadata = response.metadata();
+            assertNotNull(metadata.requestId());
+            assertTrue(metadata.duration().compareTo(Duration.ZERO) >= 0);
+            assertEquals(metadata.durationMillis(), metadata.duration().toMillis());
+            assertEquals("[REDACTED]", metadata.requestHeaders().get("Authorization"));
+            assertFalse(metadata.url().contains("url-secret"));
             assertFalse(metadata.toString().contains("header-secret"));
-            assertEquals(200, metadata.getStatusCode());
+            assertEquals(200, metadata.statusCode());
             assertTrue(metadata.isSuccessful());
-            assertEquals("POST", metadata.getMethod());
-            assertNotNull(metadata.getRequestTime());
-            assertNotNull(metadata.getResponseTime());
-            assertEquals("http/1.1", metadata.getProtocol());
+            assertEquals("POST", metadata.method());
+            assertNotNull(metadata.requestTime());
+            assertNotNull(metadata.responseTime());
+            assertEquals("http/1.1", metadata.protocol());
         }
     }
 
@@ -96,24 +94,24 @@ class HttpClientTest {
     void returnsHttpErrorsAndHonorsCharsetRedirectAndCookies() {
         try (HttpClient client = HttpClient.builder().followRedirects(false).build()) {
             HttpResponse error = client.send(HttpRequest.get(server.baseUrl() + "/error").build());
-            assertEquals(503, error.getCode());
+            assertEquals(503, error.statusCode());
             assertFalse(error.isSuccessful());
-            assertEquals("unavailable", error.getBodyAsString());
+            assertEquals("unavailable", error.bodyString());
 
             HttpResponse charset = client.send(HttpRequest.get(server.baseUrl() + "/charset").build());
-            assertEquals(Charset.forName("GBK"), charset.getCharset());
-            assertEquals("中文", charset.getBodyAsString());
-            assertEquals("����", charset.getBodyAsString(StandardCharsets.UTF_8));
+            assertEquals(Charset.forName("GBK"), charset.charset());
+            assertEquals("中文", charset.bodyString());
+            assertEquals("����", charset.bodyString(StandardCharsets.UTF_8));
 
             HttpResponse redirect = client.send(HttpRequest.get(server.baseUrl() + "/redirect").build());
             assertTrue(redirect.isRedirect());
-            assertEquals(server.baseUrl() + "/ok", redirect.getLocation());
+            assertEquals(server.baseUrl() + "/ok", redirect.location());
 
             HttpResponse cookies = client.send(HttpRequest.get(server.baseUrl() + "/cookies").build());
-            assertEquals(Map.of("a", "1", "quoted", "two"), cookies.getCookies());
-            assertEquals("1", cookies.getCookie("a"));
-            assertNull(cookies.getCookie("none"));
-            assertThrows(IllegalArgumentException.class, () -> cookies.getCookie(" "));
+            assertEquals(Map.of("a", "1", "quoted", "two"), cookies.cookies());
+            assertEquals("1", cookies.cookie("a"));
+            assertNull(cookies.cookie("none"));
+            assertThrows(IllegalArgumentException.class, () -> cookies.cookie(" "));
         }
     }
 
@@ -207,16 +205,11 @@ class HttpClientTest {
     }
 
     @Test
-    void transportFailuresDiscardUnsafeCausesButRetainTheirType() {
-        String causeSecret = "cause-secret-value";
+    void transportFailuresKeepCauseAndRedactRequestUrl() {
+        IOException cause = new IOException("connection reset");
         HttpClient.Builder builder = HttpClient.builder();
         OkHttpInterop.addInterceptor(builder, chain -> {
-            IOException failure = new IOException(
-                    "failed at https://example.test/?accessToken=" + causeSecret);
-            failure.addSuppressed(new IllegalStateException("suppressed-" + causeSecret));
-            failure.setStackTrace(new StackTraceElement[]{new StackTraceElement(
-                    "UnsafeCause", "call", "clientSecret=" + causeSecret, 1)});
-            throw failure;
+            throw cause;
         });
 
         try (HttpClient client = builder.build()) {
@@ -225,15 +218,9 @@ class HttpClientTest {
                             + "#accessToken=fragment-request-secret").build()));
 
             assertEquals(HttpFailureKind.IO, failure.getKind());
-            assertEquals(IOException.class.getName(), failure.getTransportCauseType());
-            assertNull(failure.getCause());
+            assertSame(cause, failure.getCause());
             assertFalse(failure.getMessage().contains("request-secret"));
-
-            StringWriter rendered = new StringWriter();
-            failure.printStackTrace(new PrintWriter(rendered));
-            assertFalse(rendered.toString().contains(causeSecret));
-            assertFalse(rendered.toString().contains("request-secret"));
-            assertFalse(rendered.toString().contains("fragment-request-secret"));
+            assertFalse(String.valueOf(failure.getUrl()).contains("request-secret"));
         }
     }
 
@@ -297,7 +284,7 @@ class HttpClientTest {
             HttpRequest.Builder requestBuilder = HttpRequest.post(server.baseUrl() + "/echo");
             assertSame(requestBuilder, OkHttpInterop.requestBody(requestBuilder, nativeBody));
             HttpResponse response = client.send(requestBuilder.build());
-            assertTrue(response.getBodyAsString().endsWith("|interop|native"));
+            assertTrue(response.bodyString().endsWith("|interop|native"));
         }
     }
 

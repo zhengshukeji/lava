@@ -17,6 +17,7 @@
 package com.zhengshuyun.lava.pay.wechat.exception;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
+import org.jspecify.annotations.Nullable;
 
 import java.io.Serial;
 
@@ -29,20 +30,17 @@ public final class WechatPayFileException extends WechatPayException {
 
     /** 稳定的文件失败类别。 */
     private final WechatPayFileFailure failure;
-    /** 底层异常类型名。 */
-    private final String causeType;
 
     /**
      * 创建账单文件异常。
      *
      * @param failure 精确失败类别
-     * @param causeType 底层异常类型名；没有底层异常时传空字符串
+     * @param cause   底层异常；没有时为 null
      */
-    public WechatPayFileException(WechatPayFileFailure failure, String causeType) {
+    public WechatPayFileException(WechatPayFileFailure failure, @Nullable Throwable cause) {
         super("微信支付账单文件处理失败: "
-                + ValidationUtils.requireNonNull(failure, "failure"));
+                + ValidationUtils.requireNonNull(failure, "failure"), cause);
         this.failure = failure;
-        this.causeType = ValidationUtils.requireNonNull(causeType, "causeType");
     }
 
     /**
@@ -54,12 +52,4 @@ public final class WechatPayFileException extends WechatPayException {
         return failure;
     }
 
-    /**
-     * 返回底层异常类型名。
-     *
-     * @return 底层异常类型名；没有时为空字符串
-     */
-    public String causeType() {
-        return causeType;
-    }
 }

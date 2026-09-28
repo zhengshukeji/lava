@@ -21,6 +21,7 @@ import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 支付宝 OpenAPI V3 原始响应验签与 JSON 解析器。
@@ -81,7 +82,7 @@ public final class AlipayResponseParser {
             }
             return response;
         } catch (JsonException | IllegalArgumentException exception) {
-            throw new AlipayProtocolException("支付宝 V3 成功响应不是预期 JSON 结构");
+            throw new AlipayProtocolException("支付宝 V3 成功响应不是预期 JSON 结构", exception);
         }
     }
 
@@ -118,22 +119,14 @@ public final class AlipayResponseParser {
         try {
             error = jsonCodec.read(json, ErrorPayload.class);
         } catch (JsonException | IllegalArgumentException exception) {
-            throw new AlipayProtocolException("支付宝 V3 错误响应不是有效 JSON");
+            throw new AlipayProtocolException("支付宝 V3 错误响应不是有效 JSON", exception);
         }
         if (error == null) {
             throw new AlipayProtocolException("支付宝 V3 错误响应不是有效 JSON");
         }
-        List<AlipayApiException.Detail> details = new ArrayList<>();
-        if (error.details != null) {
-            for (ErrorDetail detail : error.details) {
-                if (detail == null) {
-                    throw new AlipayProtocolException(
-                            "支付宝 V3 错误响应 details 结构无效"
-                    );
-                }
-                details.add(toDetail(detail));
-            }
-        }
+        // 附属信息只做宽松解析：其结构异常不能掩盖错误码本身
+        List<AlipayApiException.Detail> details = error.details == null ? List.of()
+                : error.details.stream().filter(Objects::nonNull).toList();
         return new AlipayApiException(
                 statusCode,
                 verified,
@@ -206,65 +199,24 @@ public final class AlipayResponseParser {
     }
 
     /**
-     * 将内部 JSON 明细转换为公开异常模型。
-     *
-     * @param value 内部错误明细
-     * @return 公开错误明细
-     */
-    private static AlipayApiException.Detail toDetail(ErrorDetail value) {
-        return new AlipayApiException.Detail(
-                value.field,
-                value.value,
-                value.location,
-                value.issue,
-                value.description
-        );
-    }
-
-    /**
-     * 兼容接口业务错误中的单个链接字符串和公共错误中的链接对象数组。
-     *
-     * @param value 原始 links 值
-     * @return 规范化不可变链接列表
+     * 宽松解析 links：支付宝可能返回单个链接字符串或链接对象数组，无法识别的结构直接忽略。
      */
     private static List<AlipayApiException.Link> toLinks(@Nullable Object value) {
-        if (value == null) {
-            return List.of();
-        }
         if (value instanceof String link) {
-            return link.isBlank() ? List.of()
-                    : List.of(new AlipayApiException.Link(link, null));
+            return link.isBlank() ? List.of() : List.of(new AlipayApiException.Link(link, null));
         }
         if (!(value instanceof List<?> values)) {
-            throw new AlipayProtocolException("支付宝 V3 错误响应 links 结构无效");
+            return List.of();
         }
         List<AlipayApiException.Link> links = new ArrayList<>(values.size());
         for (Object item : values) {
-            if (!(item instanceof Map<?, ?> fields)) {
-                throw new AlipayProtocolException("支付宝 V3 错误响应 links 结构无效");
+            if (item instanceof Map<?, ?> fields) {
+                links.add(new AlipayApiException.Link(
+                        fields.get("link") instanceof String link ? link : null,
+                        fields.get("rel") instanceof String rel ? rel : null));
             }
-            links.add(new AlipayApiException.Link(
-                    optionalString(fields.get("link")),
-                    optionalString(fields.get("rel"))
-            ));
         }
         return List.copyOf(links);
-    }
-
-    /**
-     * 将可选动态 JSON 值严格转换为字符串。
-     *
-     * @param value 动态 JSON 值
-     * @return 字符串或 {@code null}
-     */
-    private static @Nullable String optionalString(@Nullable Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof String text) {
-            return text;
-        }
-        throw new AlipayProtocolException("支付宝 V3 错误响应字段类型无效");
     }
 
     /**
@@ -289,27 +241,8 @@ public final class AlipayResponseParser {
     private record ErrorPayload(
             @JsonProperty("code") @Nullable String code,
             @JsonProperty("message") @Nullable String message,
-            @JsonProperty("details") @Nullable List<ErrorDetail> details,
+            @JsonProperty("details") @Nullable List<AlipayApiException.Detail> details,
             @JsonProperty("links") @Nullable Object links
-    ) {
-    }
-
-    /**
-     * OpenAPI V3 错误响应中的字段级问题。
-     *
-     * @param field       出错字段名；未返回时为 {@code null}
-     * @param value       支付宝收到的字段值，可能包含业务数据；未返回时为 {@code null}
-     * @param location    字段位置，例如请求体或查询参数；未返回时为 {@code null}
-     * @param issue       稳定问题类型；未返回时为 {@code null}
-     * @param description 面向开发者的补充描述；未返回时为 {@code null}
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record ErrorDetail(
-            @JsonProperty("field") @Nullable String field,
-            @JsonProperty("value") @Nullable String value,
-            @JsonProperty("location") @Nullable String location,
-            @JsonProperty("issue") @Nullable String issue,
-            @JsonProperty("description") @Nullable String description
     ) {
     }
 }

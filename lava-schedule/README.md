@@ -15,10 +15,6 @@
 ## 使用
 
 ```java
-ScheduleOptions options = ScheduleOptions.of(
-        ConcurrencyPolicy.serialQueue(20),
-        MisfirePolicy.FIRE_ONCE);
-
 try (LavaScheduler scheduler = LavaScheduler.builder()
         .executionBounds(64, 256)
         .shutdownTimeout(Duration.ofSeconds(20))
@@ -28,7 +24,7 @@ try (LavaScheduler scheduler = LavaScheduler.builder()
             "billing-refresh",
             billingService::refresh,
             Trigger.cron("0 0/5 * * * ?", ZoneId.of("Asia/Shanghai")),
-            options);
+            ConcurrencyPolicy.SKIP_IF_RUNNING);
 
     // scheduler 的生命周期应覆盖任务需要运行的整个应用生命周期。
 }
@@ -46,18 +42,12 @@ try (LavaScheduler scheduler = LavaScheduler.builder()
 
 涉及业务本地时间时必须显式传 `ZoneId`。Cron 的 DST 行为由该时区和 Quartz 的下一次触发计算决定。
 
-## 有界并发与 misfire
+## 并发与错过触发
 
-默认 `ScheduleOptions.DEFAULT` 是 `SERIAL_SKIP + SKIP`。
+默认 `ConcurrencyPolicy.SKIP_IF_RUNNING`：上一次仍在运行时跳过本次并产生 `SKIPPED` 事件；`PARALLEL` 允许同一任务并行。
+全局并发由 `executionBounds` 约束，执行器满载时产生 `REJECTED` 事件，不创建无界虚拟线程。
 
-| 策略                                                     | 行为                                     |
-|----------------------------------------------------------|------------------------------------------|
-| `ConcurrencyPolicy.SERIAL_SKIP`                          | 前一次仍在运行时跳过本次；不重叠、不排队 |
-| `ConcurrencyPolicy.serialQueue(maxPending)`              | 单任务串行执行，并使用有界待执行队列     |
-| `ConcurrencyPolicy.parallel(maxConcurrency, maxPending)` | 有界并发和有界待执行队列                 |
-
-队列满或底层 executor 拒绝时产生 `REJECTED` 事件，不创建无界虚拟线程。`MisfirePolicy` 可选丢弃错过时间的 `SKIP`、只补一次的
-`FIRE_ONCE`，或将错过 occurrence 交给有界并发策略的 `CATCH_UP`。
+错过的多次触发合并为一次立即执行，随后从当前时刻继续推进，与 Quartz 对 Cron 的默认 misfire 处理一致。
 
 `TaskEventListener` 接收 `SUCCESS`、`FAILURE`、`SKIPPED`、`REJECTED` 终态事件和时间戳。监听器异常会被隔离，不中断调度器。
 

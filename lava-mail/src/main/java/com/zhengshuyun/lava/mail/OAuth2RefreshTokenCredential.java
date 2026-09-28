@@ -52,9 +52,9 @@ public final class OAuth2RefreshTokenCredential implements MailCredential {
             URI tokenEndpoint,
             List<String> scopes,
             @Nullable String clientSecret) {
-        this.username = PasswordCredential.requireNonBlankWithoutControls(username, "username");
-        this.clientId = PasswordCredential.requireNonBlankPreserved(clientId, "clientId");
-        this.refreshToken = PasswordCredential.requireNonBlankPreserved(refreshToken, "refreshToken");
+        this.username = MailValidationUtils.requireNonBlankWithoutControls(username, "username");
+        this.clientId = MailValidationUtils.requireNonBlankPreserved(clientId, "clientId");
+        this.refreshToken = MailValidationUtils.requireNonBlankPreserved(refreshToken, "refreshToken");
         this.tokenEndpoint = requireHttpsEndpoint(tokenEndpoint);
         ValidationUtils.requireNonNull(scopes, "scopes");
         this.scopes = scopes.stream()
@@ -65,7 +65,7 @@ public final class OAuth2RefreshTokenCredential implements MailCredential {
         }
         this.clientSecret = clientSecret == null
                 ? null
-                : PasswordCredential.requireNonBlankPreserved(clientSecret, "clientSecret");
+                : MailValidationUtils.requireNonBlankPreserved(clientSecret, "clientSecret");
     }
 
     @Override
@@ -138,7 +138,7 @@ public final class OAuth2RefreshTokenCredential implements MailCredential {
     }
 
     private static String requireScope(String scope) {
-        String result = PasswordCredential.requireNonBlank(scope, "scope");
+        String result = MailValidationUtils.requireNonBlank(scope, "scope");
         if (result.codePoints().anyMatch(Character::isWhitespace)
                 || result.codePoints().anyMatch(Character::isISOControl)) {
             throw new IllegalArgumentException("scope must be a single OAuth scope token");

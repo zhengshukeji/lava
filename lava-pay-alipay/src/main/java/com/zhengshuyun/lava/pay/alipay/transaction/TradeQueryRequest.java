@@ -17,15 +17,6 @@ import java.util.Set;
  * 支付宝交易查询参数。商户订单号与支付宝交易号至少提供一个；同时提供时支付宝优先使用交易号。
  */
 public final class TradeQueryRequest {
-    /** 交易查询接口允许请求的官方扩展响应字段集合。 */
-    private static final Set<String> OPTIONS = Set.of(
-            TradeQueryOption.TRADE_SETTLE_INFO,
-            TradeQueryOption.FUND_BILL_LIST,
-            TradeQueryOption.VOUCHER_DETAIL_LIST,
-            TradeQueryOption.DISCOUNT_GOODS_DETAIL,
-            TradeQueryOption.MDISCOUNT_AMOUNT,
-            TradeQueryOption.MEDICAL_INSURANCE_INFO
-    );
 
     /** 商户订单号；与支付宝交易号至少提供一个，同时存在时支付宝优先使用交易号。 */
     private final @Nullable String outTradeNo;
@@ -38,7 +29,7 @@ public final class TradeQueryRequest {
      * 使用构建期参数创建并校验不可变交易查询请求。
      *
      * @param builder 已收集交易标识和扩展查询选项的构建器
-     * @throws IllegalArgumentException 未提供交易标识，或订单号、交易号、查询选项不符合约束
+     * @throws IllegalArgumentException 未提供交易标识，或订单号、交易号、查询选项为空白
      */
     private TradeQueryRequest(Builder builder) {
         ValidationUtils.requireTrue(builder.outTradeNo != null || builder.tradeNo != null,
@@ -128,8 +119,7 @@ public final class TradeQueryRequest {
          * @return 当前构建器
          */
         public Builder addQueryOption(String value) {
-            queryOptions.add(AlipayValidationUtils.requireOneOf(
-                    value, "queryOption", OPTIONS));
+            queryOptions.add(ValidationUtils.requireNotBlank(value, "queryOption must not be blank"));
             return this;
         }
 

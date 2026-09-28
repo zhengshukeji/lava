@@ -51,7 +51,7 @@ class MailFailuresTest {
     }
 
     @Test
-    void handlesCyclicCauseChainsAndNeverRetainsDiagnosticSecrets() {
+    void handlesCyclicCauseChainsAndKeepsOriginalCause() {
         CyclingFailure first = new CyclingFailure("first-secret");
         CyclingFailure second = new CyclingFailure("second-secret");
         first.next = second;
@@ -60,10 +60,8 @@ class MailFailuresTest {
         MailException wrapped = MailFailures.wrap("test operation", first);
 
         assertEquals(MailFailureKind.PARSING, wrapped.kind());
-        assertFalse(wrapped.toString().contains("first-secret"));
-        assertFalse(wrapped.toString().contains("second-secret"));
-        assertFalse(String.valueOf(wrapped.causeType()).contains("first-secret"));
-        assertNull(wrapped.getCause());
+        assertFalse(wrapped.getMessage().contains("first-secret"));
+        assertSame(first, wrapped.getCause());
     }
 
     @Test

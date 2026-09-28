@@ -14,77 +14,156 @@
  * limitations under the License.
  */
 
+
 package com.zhengshuyun.lava.http;
 
+import okhttp3.sse.EventSource;
+import org.jspecify.annotations.Nullable;
+
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
- * 简洁命名的可取消 SSE 会话句柄。
+ * 可取消的 SSE 会话句柄。
+ *
+ * <p>会话从“连接中”出发，最终进入取消、远端关闭、失败三种终态之一；终态由 CAS 唯一确定，
+ * {@link SseListener#onTerminal} 恰好调用一次。监听器回调串行执行，任一回调抛出异常都会让会话以
+ * {@link SseTermination#FAILED} 结束。
  */
 public final class SseSession implements AutoCloseable {
-    /**
-     * 调用方注册的通用 SSE 监听器。
-     */
-    private final SseListener listener;
-    /**
-     * 异步创建后绑定的兼容 API 会话。
-     */
-    private final AtomicReference<HttpSseSession> delegate = new AtomicReference<>();
-    /**
-     * 处理绑定发生前就调用 cancel 的竞态。
-     */
-    private final AtomicBoolean cancelRequested = new AtomicBoolean();
-    /**
-     * 已确定的唯一终态，供调用方在回调外查询。
-     */
-    private final AtomicReference<SseTerminal> terminal = new AtomicReference<>();
 
-    SseSession(SseListener listener) {
-        this.listener = listener;
+    /**
+     * 会话内部状态；终态只能进入一次。
+     */
+    private enum State {
+        CONNECTING,
+        OPEN,
+        CANCELLED,
+        REMOTE_CLOSED,
+        FAILED
     }
 
-    void bind(HttpSseSession session) {
-        delegate.set(session);
-        if (cancelRequested.get()) {
-            session.cancel();
+    private final SseListener listener;
+    /**
+     * 终态回调结束后通知客户端注销本会话。
+     */
+    private final Consumer<SseSession> onTerminated;
+    private final AtomicReference<State> state = new AtomicReference<>(State.CONNECTING);
+    /**
+     * 底层事件源；OkHttp 异步回调可能早于 {@code newEventSource} 返回，因此延迟绑定。
+     */
+    private final AtomicReference<@Nullable EventSource> eventSource = new AtomicReference<>();
+    private final AtomicReference<@Nullable SseTerminal> terminal = new AtomicReference<>();
+    /**
+     * 串行化监听器回调，保证终态回调不会与事件回调交叠。
+     */
+    private final Object callbackLock = new Object();
+
+    SseSession(SseListener listener, Consumer<SseSession> onTerminated) {
+        this.listener = listener;
+        this.onTerminated = onTerminated;
+    }
+
+    void bind(EventSource source) {
+        eventSource.compareAndSet(null, source);
+        // 绑定前已被取消或失败时，补做一次底层取消
+        State current = state.get();
+        if (current == State.CANCELLED || current == State.FAILED) {
+            source.cancel();
         }
     }
 
     void opened(int statusCode, HttpHeaders headers) {
-        listener.onOpen(this, statusCode, headers);
+        if (!state.compareAndSet(State.CONNECTING, State.OPEN)) {
+            return;
+        }
+        Throwable callbackFailure = null;
+        synchronized (callbackLock) {
+            if (state.get() != State.OPEN) {
+                return;
+            }
+            try {
+                listener.onOpen(this, statusCode, headers);
+            } catch (Throwable throwable) {
+                callbackFailure = throwable;
+            }
+        }
+        if (callbackFailure != null) {
+            fail(new SseFailure(HttpFailureKind.IO, callbackFailure, statusCode, headers, null));
+        }
     }
 
     void event(SseEvent event) {
-        listener.onEvent(this, event);
+        Throwable callbackFailure = null;
+        synchronized (callbackLock) {
+            if (state.get() != State.OPEN) {
+                return;
+            }
+            try {
+                listener.onEvent(this, event);
+            } catch (Throwable throwable) {
+                callbackFailure = throwable;
+            }
+        }
+        if (callbackFailure != null) {
+            fail(new SseFailure(HttpFailureKind.IO, callbackFailure, null, null, null));
+        }
     }
 
-    void terminal(SseTerminal terminal) {
-        this.terminal.compareAndSet(null, terminal);
-        listener.onTerminal(this, terminal);
+    void remoteClosed() {
+        complete(State.REMOTE_CLOSED, new SseTerminal(SseTermination.REMOTE_CLOSED, null));
     }
 
-    /**
-     * 主动取消会话；在底层会话尚未绑定时也会记录取消意图。
-     */
-    public void cancel() {
-        cancelRequested.set(true);
-        HttpSseSession session = delegate.get();
-        if (session != null) {
-            session.cancel();
+    void fail(SseFailure failure) {
+        complete(State.FAILED, new SseTerminal(SseTermination.FAILED, failure));
+    }
+
+    private void complete(State terminalState, SseTerminal result) {
+        // 远端关闭、显式取消和失败可能并发到达，CAS 决定唯一的最终结果
+        while (true) {
+            State current = state.get();
+            if (isTerminal(current)) {
+                return;
+            }
+            if (state.compareAndSet(current, terminalState)) {
+                break;
+            }
+        }
+        terminal.set(result);
+
+        if (terminalState != State.REMOTE_CLOSED) {
+            EventSource source = eventSource.get();
+            if (source != null) {
+                // 主动终态必须停止底层读取，防止终态后继续派发事件
+                source.cancel();
+            }
+        }
+        try {
+            synchronized (callbackLock) {
+                listener.onTerminal(this, result);
+            }
+        } catch (Throwable ignored) {
+            // 终态回调的异常不能再触发第二个终态
+        } finally {
+            onTerminated.accept(this);
         }
     }
 
     /**
-     * 判断会话是否已取消或收到终态通知。
+     * 主动取消会话；已进入终态时无效果。
+     */
+    public void cancel() {
+        complete(State.CANCELLED, new SseTerminal(SseTermination.CANCELLED, null));
+    }
+
+    /**
+     * 判断会话是否已进入终态。
      *
      * @return 已终止时返回 true
      */
     public boolean isClosed() {
-        HttpSseSession session = delegate.get();
-        return cancelRequested.get() || terminal.get() != null
-                || (session != null && session.isClosed());
+        return isTerminal(state.get());
     }
 
     /**
@@ -93,17 +172,13 @@ public final class SseSession implements AutoCloseable {
      * @return 已取消时返回 true
      */
     public boolean isCancelled() {
-        SseTerminal current = terminal.get();
-        // 终态一旦确定，以实际终态为准；自然结束后调用 close() 不能改写结果。
-        return current == null
-                ? cancelRequested.get()
-                : current.termination() == SseTermination.CANCELLED;
+        return state.get() == State.CANCELLED;
     }
 
     /**
      * 返回已经确定的终态。
      *
-     * @return 终态；仍运行时为空
+     * @return 终态；仍在运行时为空
      */
     public Optional<SseTerminal> terminal() {
         return Optional.ofNullable(terminal.get());
@@ -115,5 +190,9 @@ public final class SseSession implements AutoCloseable {
     @Override
     public void close() {
         cancel();
+    }
+
+    private static boolean isTerminal(State state) {
+        return state == State.CANCELLED || state == State.REMOTE_CLOSED || state == State.FAILED;
     }
 }

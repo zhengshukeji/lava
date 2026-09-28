@@ -25,7 +25,7 @@ String digest = CryptoUtils.hmacSha256Hex(pepper, plaintext);
 ## Argon2id
 
 ```java
-PasswordHasher hasher = PasswordHasher.create();
+PasswordHasher hasher = new PasswordHasher();
 char[] password = readPassword();
 try {
     String encoded = hasher.hash(password);

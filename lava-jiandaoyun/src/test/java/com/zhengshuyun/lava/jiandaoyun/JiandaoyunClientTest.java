@@ -28,6 +28,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -159,17 +161,16 @@ class JiandaoyunClientTest {
     }
 
     /**
-     * 验证构建器成功构建后不可复用。
+     * 验证同一构建器可以构建多个互相独立的客户端。
      */
     @Test
-    void builderRejectsReuseAfterBuild() {
+    void builderCanBuildIndependentClients() {
         JiandaoyunClient.Builder builder = clientBuilder();
-        JiandaoyunClient built = builder.build();
-        try {
-            assertThrows(IllegalStateException.class, builder::build);
-            assertThrows(IllegalStateException.class, () -> builder.apiKey(API_KEY));
-        } finally {
-            built.close();
+        try (JiandaoyunClient first = builder.build(); JiandaoyunClient second = builder.build()) {
+            assertNotSame(first, second);
+            first.close();
+            assertThrows(IllegalStateException.class, first::forms);
+            assertNotNull(second.forms());
         }
     }
 

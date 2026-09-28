@@ -64,26 +64,11 @@ public record Transaction(
 ) {
 
     /**
-     * 校验必填字段并复制优惠列表。
+     * 复制优惠列表以保持记录不可变。
      */
     public Transaction {
-        ValidationUtils.requireNotBlank(appid, "appid must not be blank");
-        ValidationUtils.requireNotBlank(mchid, "mchid must not be blank");
-        ValidationUtils.requireNotBlank(outTradeNo, "outTradeNo must not be blank");
-        ValidationUtils.requireNotBlank(tradeState, "tradeState must not be blank");
-        ValidationUtils.requireNonNull(tradeStateDesc, "tradeStateDesc must not be null");
         if (promotionDetail != null) {
             promotionDetail = List.copyOf(promotionDetail);
-        }
-        if (TradeState.SUCCESS.equals(tradeState)) {
-            requireSuccessfulFields(
-                    transactionId,
-                    tradeType,
-                    bankType,
-                    successTime,
-                    payer,
-                    amount
-            );
         }
     }
 
@@ -125,8 +110,11 @@ public record Transaction(
                     WechatPaySecurityFailure.RESPONSE_MISMATCH
             );
         }
-        // 支付成功的交易在构造时已要求金额，这里缺少金额只会是未付款交易，没有金额可核对。
+        // 未付款交易可能不返回金额，此时没有金额可核对；已付款交易缺少金额视为不一致
         if (amount == null) {
+            if (paid()) {
+                throw new WechatPaySecurityException(WechatPaySecurityFailure.RESPONSE_MISMATCH);
+            }
             return this;
         }
         if (amount.total == null
@@ -164,17 +152,9 @@ public record Transaction(
                 expectedOutTradeNo,
                 expectedTotal
         );
-        expectedTransactionId = WechatPayValidationUtils.requireId(
-                expectedTransactionId,
-                "expectedTransactionId",
-                32
-        );
-        expectedOpenid = WechatPayValidationUtils.requireText(
-                expectedOpenid,
-                "expectedOpenid",
-                1,
-                128
-        );
+        expectedTransactionId = ValidationUtils.requireNotBlank(
+                expectedTransactionId, "expectedTransactionId must not be blank");
+        expectedOpenid = ValidationUtils.requireNotBlank(expectedOpenid, "expectedOpenid must not be blank");
         if (!paid()
                 || !expectedTransactionId.equals(transactionId)
                 || payer == null
@@ -184,48 +164,6 @@ public record Transaction(
             );
         }
         return this;
-    }
-
-    /**
-     * 校验支付成功状态下微信支付承诺返回的关键业务字段。
-     *
-     * @param transactionId 微信支付订单号
-     * @param tradeType     交易类型
-     * @param bankType      银行类型
-     * @param successTime   支付成功时间
-     * @param payer         支付者
-     * @param amount        订单金额
-     */
-    private static void requireSuccessfulFields(
-            @Nullable String transactionId,
-            @Nullable String tradeType,
-            @Nullable String bankType,
-            @Nullable OffsetDateTime successTime,
-            @Nullable Payer payer,
-            @Nullable Amount amount
-    ) {
-        ValidationUtils.requireNotBlank(transactionId, "transactionId must not be blank");
-        ValidationUtils.requireNotBlank(tradeType, "tradeType must not be blank");
-        ValidationUtils.requireNotBlank(bankType, "bankType must not be blank");
-        ValidationUtils.requireNonNull(successTime, "successTime must not be null");
-        ValidationUtils.requireNonNull(payer, "payer must not be null");
-        ValidationUtils.requireNotBlank(payer.openid, "payer.openid must not be blank");
-        ValidationUtils.requireNonNull(amount, "amount must not be null");
-        WechatPayValidationUtils.requirePositive(
-                ValidationUtils.requireNonNull(amount.total, "amount.total must not be null"),
-                "amount.total"
-        );
-        WechatPayValidationUtils.requireNonNegative(
-                ValidationUtils.requireNonNull(
-                        amount.payerTotal,
-                        "amount.payerTotal must not be null"
-                ),
-                "amount.payerTotal"
-        );
-        ValidationUtils.requireTrue("CNY".equals(amount.currency),
-                "amount.currency must be CNY");
-        ValidationUtils.requireTrue("CNY".equals(amount.payerCurrency),
-                "amount.payerCurrency must be CNY");
     }
 
     /**
@@ -297,21 +235,6 @@ public record Transaction(
          * 复制优惠商品列表。
          */
         public PromotionDetail {
-            ValidationUtils.requireNotBlank(couponId, "couponId must not be blank");
-            WechatPayValidationUtils.requireNonNegative(amount,
-                    "promotionDetail.amount");
-            if (wechatpayContribute != null) {
-                WechatPayValidationUtils.requireNonNegative(wechatpayContribute,
-                        "promotionDetail.wechatpayContribute");
-            }
-            if (merchantContribute != null) {
-                WechatPayValidationUtils.requireNonNegative(merchantContribute,
-                        "promotionDetail.merchantContribute");
-            }
-            if (otherContribute != null) {
-                WechatPayValidationUtils.requireNonNegative(otherContribute,
-                        "promotionDetail.otherContribute");
-            }
             if (goodsDetail != null) {
                 goodsDetail = List.copyOf(goodsDetail);
             }
@@ -335,15 +258,5 @@ public record Transaction(
             @JsonProperty("discount_amount") long discountAmount,
             @JsonProperty("goods_remark") @Nullable String goodsRemark
     ) {
-        /**
-         * 校验优惠涉及的单品信息。
-         */
-        public PromotionGoodsDetail {
-            ValidationUtils.requireNotBlank(goodsId, "goodsId must not be blank");
-            WechatPayValidationUtils.requirePositive(quantity, "quantity");
-            WechatPayValidationUtils.requirePositive(unitPrice, "unitPrice");
-            WechatPayValidationUtils.requireNonNegative(discountAmount,
-                    "discountAmount");
-        }
     }
 }

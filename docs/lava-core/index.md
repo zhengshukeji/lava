@@ -41,7 +41,7 @@
 | 能力 | 主要入口 | 适用场景 |
 | --- | --- | --- |
 | ID | `IdUtils`、`UUIDv7Generator`、`SnowflakeIdGenerator` | UUIDv4、时间有序 UUIDv7、分布式长整型 ID |
-| 重试 | `RetryPolicy`、`RetryExecutor` | 受控重试、指数退避、完全抖动、尝试观测 |
+| 重试 | `RetryPolicy`、`RetryDelayStrategy` | 受控重试、指数退避、完全抖动、尝试观测 |
 | IO | `ByteStreamUtils`、`InputStreamSource` | 有界读取、流复制、明确资源所有权 |
 | 字符串 | `StringUtils` | 空值安全判断、空值转换和默认值 |
 | 容器 | `CollectionUtils`、`MapUtils` | 集合与映射的空值安全判断 |

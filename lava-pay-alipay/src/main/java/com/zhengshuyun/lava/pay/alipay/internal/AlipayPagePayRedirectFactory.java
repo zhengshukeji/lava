@@ -5,7 +5,6 @@
 
 package com.zhengshuyun.lava.pay.alipay.internal;
 
-import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.http.HttpUrlBuilder;
 import com.zhengshuyun.lava.json.JsonCodec;
 import com.zhengshuyun.lava.json.JsonException;
@@ -71,14 +70,11 @@ public final class AlipayPagePayRedirectFactory {
             Clock clock,
             JsonCodec jsonCodec
     ) {
-        this.appId = AlipayValidationUtils.requireAppId(appId);
-        this.appPrivateKey = AlipayKeyUtils.requirePrivateKey(appPrivateKey);
-        this.baseUrl = AlipayValidationUtils.requireBaseUrl(baseUrl);
-        this.clock = ValidationUtils.requireNonNull(clock, "clock must not be null");
-        this.jsonCodec = ValidationUtils.requireNonNull(
-                jsonCodec,
-                "jsonCodec must not be null"
-        );
+        this.appId = appId;
+        this.appPrivateKey = appPrivateKey;
+        this.baseUrl = baseUrl;
+        this.clock = clock;
+        this.jsonCodec = jsonCodec;
     }
 
     /**
@@ -209,7 +205,7 @@ public final class AlipayPagePayRedirectFactory {
         try {
             return jsonCodec.write(value);
         } catch (JsonException exception) {
-            throw new AlipayProtocolException("无法编码支付宝页面支付请求 JSON");
+            throw new AlipayProtocolException("无法编码支付宝页面支付请求 JSON", exception);
         }
     }
 

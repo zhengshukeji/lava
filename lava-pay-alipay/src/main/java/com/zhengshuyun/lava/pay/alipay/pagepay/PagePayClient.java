@@ -8,7 +8,7 @@ package com.zhengshuyun.lava.pay.alipay.pagepay;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayMoneyUtils;
-import com.zhengshuyun.lava.pay.alipay.internal.AlipayRuntime;
+import com.zhengshuyun.lava.pay.alipay.internal.AlipayPagePayRedirectFactory;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayTransport;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayValidationUtils;
 import org.jspecify.annotations.Nullable;
@@ -16,8 +16,6 @@ import org.jspecify.annotations.Nullable;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
@@ -39,8 +37,10 @@ public final class PagePayClient {
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern(
             "yyyy-MM-dd HH:mm:ss");
 
-    /** 根客户端共享运行时，用于检查关闭状态并取得表单生成器。 */
-    private final AlipayRuntime runtime;
+    /** 根客户端共享的传输层，用于检查关闭状态和读取协议时间。 */
+    private final AlipayTransport transport;
+    /** 生成已签名页面支付表单与跳转地址的工厂。 */
+    private final AlipayPagePayRedirectFactory redirects;
     /** 支付结果异步通知地址，随公共参数参与 AOP 签名。 */
     private final URI notifyUrl;
     /** 支付完成后的浏览器同步返回地址，不可作为支付成功依据。 */
@@ -49,12 +49,15 @@ public final class PagePayClient {
     /**
      * 由根客户端创建页面支付入口。
      *
-     * @param runtime   共享运行时
+     * @param transport 共享协议传输层
+     * @param redirects 页面支付跳转工厂
      * @param notifyUrl 异步通知地址
      * @param returnUrl 同步返回地址
      */
-    public PagePayClient(AlipayRuntime runtime, URI notifyUrl, URI returnUrl) {
-        this.runtime = ValidationUtils.requireNonNull(runtime, "runtime");
+    public PagePayClient(AlipayTransport transport, AlipayPagePayRedirectFactory redirects,
+                         URI notifyUrl, URI returnUrl) {
+        this.transport = ValidationUtils.requireNonNull(transport, "transport");
+        this.redirects = ValidationUtils.requireNonNull(redirects, "redirects");
         this.notifyUrl = AlipayValidationUtils.requireCallbackUrl(notifyUrl, "notifyUrl");
         this.returnUrl = AlipayValidationUtils.requireCallbackUrl(returnUrl, "returnUrl");
     }
@@ -70,7 +73,7 @@ public final class PagePayClient {
         PagePayPayload payload = createPayload(request);
 
         // 2. 注入公共参数和回调地址，完成 RSA2 签名、HTML 转义与 POST 表单组装。
-        return new PagePayForm(runtime.pagePayRedirects().createForm(
+        return new PagePayForm(redirects.createForm(
                 METHOD,
                 payload,
                 notifyUrl,
@@ -86,7 +89,7 @@ public final class PagePayClient {
      *
      * @param request 单笔订单业务参数
      * @return 可直接交给浏览器打开的支付宝支付绝对地址
-     * @throws IllegalArgumentException 请求为空或订单字段、时效不符合支付宝约束
+     * @throws IllegalArgumentException 请求为空
      * @throws com.zhengshuyun.lava.pay.alipay.exception.AlipayProtocolException
      *         GET 地址超过支付宝 {@code pageRedirectionData} 的 16384 字符上限
      * @throws IllegalStateException 根客户端已经关闭
@@ -96,7 +99,7 @@ public final class PagePayClient {
         PagePayPayload payload = createPayload(request);
 
         // 2. 将全部公共参数、回调地址和业务参数签名后编码进 GET 查询串。
-        return runtime.pagePayRedirects().createUrl(
+        return redirects.createUrl(
                 METHOD,
                 payload,
                 notifyUrl,
@@ -127,13 +130,12 @@ public final class PagePayClient {
      *
      * @param request 单笔订单业务参数
      * @return 金额、时间、渠道及商品字段均已转换完成的不可变载荷
-     * @throws IllegalArgumentException 请求为空或绝对过期时间超出允许窗口
+     * @throws IllegalArgumentException 请求为空
      * @throws IllegalStateException 根客户端已经关闭
      */
     private PagePayPayload createPayload(PagePayRequest request) {
-        AlipayTransport transport = runtime.transport();
+        transport.ensureOpen();
         ValidationUtils.requireNonNull(request, "request must not be null");
-        validateTimeExpire(transport, request.timeExpire());
 
         String timeExpire = request.timeExpire() == null ? null
                 : DATE_TIME.format(request.timeExpire());
@@ -162,23 +164,6 @@ public final class PagePayClient {
                 request.passbackParams() == null ? null
                         : URLEncoder.encode(request.passbackParams(), StandardCharsets.UTF_8)
         );
-    }
-
-    /**
-     * 校验绝对过期时间位于支付宝允许的时间窗口内。
-     *
-     * @param transport 共享传输层
-     * @param timeExpire 可选过期时间
-     */
-    private static void validateTimeExpire(AlipayTransport transport,
-                                           @Nullable LocalDateTime timeExpire) {
-        if (timeExpire == null) {
-            return;
-        }
-        Duration remaining = Duration.between(transport.currentDateTime(), timeExpire);
-        ValidationUtils.requireTrue(remaining.compareTo(Duration.ofMinutes(1)) >= 0
-                        && remaining.compareTo(Duration.ofDays(15)) <= 0,
-                "timeExpire must be between 1 minute and 15 days from now");
     }
 
     /**

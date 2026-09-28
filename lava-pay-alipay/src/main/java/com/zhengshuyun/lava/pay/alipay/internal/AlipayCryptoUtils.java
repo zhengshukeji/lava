@@ -61,7 +61,7 @@ public final class AlipayCryptoUtils {
             return Base64.getEncoder().encodeToString(
                     CryptoUtils.rsaSha256Sign(privateKey, content));
         } catch (CryptoException exception) {
-            throw new AlipayProtocolException("无法生成支付宝 RSA2 请求签名");
+            throw new AlipayProtocolException("无法生成支付宝 RSA2 请求签名", exception);
         }
     }
 
@@ -188,7 +188,7 @@ public final class AlipayCryptoUtils {
             return Charset.forName(name);
         } catch (UnsupportedCharsetException exception) {
             throw new AlipaySecurityException(
-                    AlipaySecurityFailure.UNSUPPORTED_CHARSET);
+                    AlipaySecurityFailure.UNSUPPORTED_CHARSET, exception);
         }
     }
 }

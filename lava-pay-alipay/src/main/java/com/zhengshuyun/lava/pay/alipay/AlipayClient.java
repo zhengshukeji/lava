@@ -24,7 +24,6 @@ import com.zhengshuyun.lava.pay.alipay.bill.BillClient;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayJsonUtils;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayKeyUtils;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayPagePayRedirectFactory;
-import com.zhengshuyun.lava.pay.alipay.internal.AlipayRuntime;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayTransport;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayValidationUtils;
 import com.zhengshuyun.lava.pay.alipay.notification.NotificationParser;
@@ -62,8 +61,10 @@ public final class AlipayClient implements AutoCloseable {
     private final String appId;
     /** 当前客户端绑定的卖家支付宝用户 ID。 */
     private final String sellerId;
-    /** 各业务入口共享的协议传输资源与关闭状态。 */
-    private final AlipayRuntime runtime;
+    /** 各业务入口共享的协议传输层，同时持有 HTTP 资源所有权与关闭状态。 */
+    private final AlipayTransport transport;
+    /** 页面支付表单与跳转地址工厂。 */
+    private final AlipayPagePayRedirectFactory pagePayRedirects;
     /** 交易查询与关闭入口。 */
     private final TransactionClient transactionClient;
     /** 退款申请与查询入口。 */
@@ -74,27 +75,30 @@ public final class AlipayClient implements AutoCloseable {
     private final NotificationParser notificationParser;
 
     /**
-     * 使用已经校验的商户配置和共享运行时创建根客户端。
+     * 使用已经校验的商户配置和共享传输层创建根客户端。
      *
-     * @param appId           支付宝应用 ID
-     * @param sellerId        卖家支付宝用户 ID
-     * @param alipayPublicKey 支付宝公钥
-     * @param runtime         共享协议运行时
+     * @param appId            支付宝应用 ID
+     * @param sellerId         卖家支付宝用户 ID
+     * @param alipayPublicKey  支付宝公钥
+     * @param transport        共享协议传输层
+     * @param pagePayRedirects 页面支付跳转工厂
      */
     private AlipayClient(
             String appId,
             String sellerId,
             PublicKey alipayPublicKey,
-            AlipayRuntime runtime
+            AlipayTransport transport,
+            AlipayPagePayRedirectFactory pagePayRedirects
     ) {
         this.appId = appId;
         this.sellerId = sellerId;
-        this.runtime = runtime;
-        transactionClient = new TransactionClient(runtime);
-        refundClient = new RefundClient(runtime);
-        billClient = new BillClient(runtime);
+        this.transport = transport;
+        this.pagePayRedirects = pagePayRedirects;
+        transactionClient = new TransactionClient(transport);
+        refundClient = new RefundClient(transport);
+        billClient = new BillClient(transport);
         notificationParser = new NotificationParser(
-                runtime,
+                transport,
                 appId,
                 sellerId,
                 alipayPublicKey
@@ -102,7 +106,7 @@ public final class AlipayClient implements AutoCloseable {
     }
 
     /**
-     * 创建一次性 fluent 构建器。
+     * 创建 fluent 构建器。
      *
      * @return 新构建器
      */
@@ -138,8 +142,8 @@ public final class AlipayClient implements AutoCloseable {
      * @throws IllegalStateException    根客户端已经关闭
      */
     public PagePayClient pagePay(URI notifyUrl, URI returnUrl) {
-        runtime.ensureOpen();
-        return new PagePayClient(runtime, notifyUrl, returnUrl);
+        transport.ensureOpen();
+        return new PagePayClient(transport, pagePayRedirects, notifyUrl, returnUrl);
     }
 
     /**
@@ -162,7 +166,7 @@ public final class AlipayClient implements AutoCloseable {
      * @throws IllegalStateException 根客户端已经关闭
      */
     public TransactionClient transactions() {
-        runtime.ensureOpen();
+        transport.ensureOpen();
         return transactionClient;
     }
 
@@ -173,7 +177,7 @@ public final class AlipayClient implements AutoCloseable {
      * @throws IllegalStateException 根客户端已经关闭
      */
     public RefundClient refunds() {
-        runtime.ensureOpen();
+        transport.ensureOpen();
         return refundClient;
     }
 
@@ -184,7 +188,7 @@ public final class AlipayClient implements AutoCloseable {
      * @throws IllegalStateException 根客户端已经关闭
      */
     public BillClient bills() {
-        runtime.ensureOpen();
+        transport.ensureOpen();
         return billClient;
     }
 
@@ -195,7 +199,7 @@ public final class AlipayClient implements AutoCloseable {
      * @throws IllegalStateException 根客户端已经关闭
      */
     public NotificationParser notifications() {
-        runtime.ensureOpen();
+        transport.ensureOpen();
         return notificationParser;
     }
 
@@ -204,7 +208,7 @@ public final class AlipayClient implements AutoCloseable {
      */
     @Override
     public void close() {
-        runtime.close();
+        transport.close();
     }
 
     /**
@@ -225,13 +229,10 @@ public final class AlipayClient implements AutoCloseable {
     }
 
     /**
-     * 支付宝普通商户公钥模式客户端的一次性 fluent 构建器。
+     * 支付宝普通商户公钥模式客户端的 fluent 构建器。
      *
      * <p>Java 快速沙箱配置应把原始 PKCS#8 {@code appPrivateKey} 传给
-     * {@link #appPrivateKey(String)}，不得改用 PKCS#1 字段或自行转换密钥格式。
-     * 每次调用 {@link #build()} 后，构建器都会释放其持有的应用私钥引用；失败后重试必须重新配置私钥。</p>
-     *
-     * <p>构建成功后，所有配置方法和 {@link #build()} 均会抛出 {@link IllegalStateException}。</p>
+     * {@link #appPrivateKey(String)}，不得改用 PKCS#1 字段或自行转换密钥格式。</p>
      */
     public static final class Builder {
         /** 待绑定的支付宝应用 ID。 */
@@ -248,8 +249,6 @@ public final class AlipayClient implements AutoCloseable {
         private URI baseUrl = DEFAULT_BASE_URL;
         /** 生成支付宝协议时间戳所使用的时钟。 */
         private Clock clock = Clock.systemUTC();
-        /** 构建器是否已经成功创建根客户端。 */
-        private boolean built;
 
         /** 创建使用生产 OpenAPI 地址和系统时钟的空构建器。 */
         private Builder() {
@@ -260,11 +259,9 @@ public final class AlipayClient implements AutoCloseable {
          *
          * @param value 支付宝应用 ID
          * @return 当前构建器
-         * @throws IllegalArgumentException 应用 ID 为空或格式无效
-         * @throws IllegalStateException    构建器已经成功使用
+         * @throws IllegalArgumentException 应用 ID 为空白
          */
         public Builder appId(String value) {
-            ensureNotBuilt();
             appId = AlipayValidationUtils.requireAppId(value);
             return this;
         }
@@ -274,11 +271,9 @@ public final class AlipayClient implements AutoCloseable {
          *
          * @param value 以 2088 开头的卖家支付宝用户 ID
          * @return 当前构建器
-         * @throws IllegalArgumentException 卖家用户 ID 为空或格式无效
-         * @throws IllegalStateException    构建器已经成功使用
+         * @throws IllegalArgumentException 卖家用户 ID 为空白
          */
         public Builder sellerId(String value) {
-            ensureNotBuilt();
             sellerId = AlipayValidationUtils.requireSellerId(value);
             return this;
         }
@@ -289,10 +284,8 @@ public final class AlipayClient implements AutoCloseable {
          * @param value Java 使用的 PKCS#8 应用私钥
          * @return 当前构建器
          * @throws IllegalArgumentException 私钥为空、格式无效、不是 RSA 或长度不足 2048 位
-         * @throws IllegalStateException    构建器已经成功使用
          */
         public Builder appPrivateKey(String value) {
-            ensureNotBuilt();
             appPrivateKey = AlipayKeyUtils.readPrivateKey(value);
             return this;
         }
@@ -303,10 +296,8 @@ public final class AlipayClient implements AutoCloseable {
          * @param path PKCS#8 应用私钥文件
          * @return 当前构建器
          * @throws IllegalArgumentException 文件不可读，或私钥格式、算法、长度无效
-         * @throws IllegalStateException    构建器已经成功使用
          */
         public Builder appPrivateKey(Path path) {
-            ensureNotBuilt();
             appPrivateKey = AlipayKeyUtils.readPrivateKey(path);
             return this;
         }
@@ -317,10 +308,8 @@ public final class AlipayClient implements AutoCloseable {
          * @param value HSM 或密钥服务提供的 RSA 私钥
          * @return 当前构建器
          * @throws IllegalArgumentException 私钥为空、不是 RSA 或长度不足 2048 位
-         * @throws IllegalStateException    构建器已经成功使用
          */
         public Builder appPrivateKey(PrivateKey value) {
-            ensureNotBuilt();
             appPrivateKey = AlipayKeyUtils.requirePrivateKey(value);
             return this;
         }
@@ -331,10 +320,8 @@ public final class AlipayClient implements AutoCloseable {
          * @param value 原始 Base64 或 X.509 PEM 支付宝公钥
          * @return 当前构建器
          * @throws IllegalArgumentException 公钥为空、格式无效、不是 RSA 或长度不足 2048 位
-         * @throws IllegalStateException    构建器已经成功使用
          */
         public Builder alipayPublicKey(String value) {
-            ensureNotBuilt();
             alipayPublicKey = AlipayKeyUtils.readPublicKey(value);
             return this;
         }
@@ -345,10 +332,8 @@ public final class AlipayClient implements AutoCloseable {
          * @param path 支付宝公钥文件
          * @return 当前构建器
          * @throws IllegalArgumentException 文件不可读，或公钥格式、算法、长度无效
-         * @throws IllegalStateException    构建器已经成功使用
          */
         public Builder alipayPublicKey(Path path) {
-            ensureNotBuilt();
             alipayPublicKey = AlipayKeyUtils.readPublicKey(path);
             return this;
         }
@@ -359,10 +344,8 @@ public final class AlipayClient implements AutoCloseable {
          * @param value HSM 或配置中心提供的支付宝 RSA 公钥
          * @return 当前构建器
          * @throws IllegalArgumentException 公钥为空、不是 RSA 或长度不足 2048 位
-         * @throws IllegalStateException    构建器已经成功使用
          */
         public Builder alipayPublicKey(PublicKey value) {
-            ensureNotBuilt();
             alipayPublicKey = AlipayKeyUtils.requirePublicKey(value);
             return this;
         }
@@ -374,10 +357,8 @@ public final class AlipayClient implements AutoCloseable {
          * @param value HTTP 客户端
          * @return 当前构建器
          * @throws IllegalArgumentException HTTP 客户端为空
-         * @throws IllegalStateException    构建器已经成功使用
          */
         public Builder httpClient(HttpClient value) {
-            ensureNotBuilt();
             value = ValidationUtils.requireNonNull(value, "httpClient must not be null");
             ValidationUtils.requireTrue(
                     !OkHttpInterop.unwrap(value).retryOnConnectionFailure(),
@@ -402,10 +383,8 @@ public final class AlipayClient implements AutoCloseable {
          * @param value 支付宝 OpenAPI 基础地址
          * @return 当前构建器
          * @throws IllegalArgumentException 地址为空或不符合 OpenAPI 安全约束
-         * @throws IllegalStateException    构建器已经成功使用
          */
         public Builder baseUrl(URI value) {
-            ensureNotBuilt();
             baseUrl = AlipayValidationUtils.requireBaseUrl(value);
             return this;
         }
@@ -416,10 +395,8 @@ public final class AlipayClient implements AutoCloseable {
          * @param value 支付宝 OpenAPI 基础地址
          * @return 当前构建器
          * @throws IllegalArgumentException 地址为空、语法无效或不符合 OpenAPI 安全约束
-         * @throws IllegalStateException    构建器已经成功使用
          */
         public Builder baseUrl(String value) {
-            ensureNotBuilt();
             baseUrl = AlipayValidationUtils.requireBaseUrl(
                     parseUri(value, "baseUrl")
             );
@@ -431,72 +408,50 @@ public final class AlipayClient implements AutoCloseable {
          *
          * @return 根客户端
          * @throws IllegalArgumentException 缺少必需配置
-         * @throws IllegalStateException    构建器已经成功使用
          */
         public AlipayClient build() {
-            ensureNotBuilt();
+            // 1. 校验必需配置，避免半初始化客户端进入协议流程
+            String checkedAppId = ValidationUtils.requireNonNull(appId, "appId is required");
+            String checkedSellerId = ValidationUtils.requireNonNull(sellerId, "sellerId is required");
+            PrivateKey checkedPrivateKey = ValidationUtils.requireNonNull(appPrivateKey, "appPrivateKey is required");
+            PublicKey checkedPublicKey = ValidationUtils.requireNonNull(alipayPublicKey, "alipayPublicKey is required");
+
+            // 2. 未借用外部客户端时创建专属 HTTP 客户端，并显式禁用重试和重定向
+            boolean ownsHttpClient = httpClient == null;
+            HttpClient effectiveHttpClient = ownsHttpClient
+                    ? HttpClient.builder()
+                    .retryOnConnectionFailure(false)
+                    .followRedirects(false)
+                    .followSslRedirects(false)
+                    .build()
+                    : httpClient;
             try {
-                // 1. 一次性读取并校验必需配置，避免半初始化客户端进入协议流程。
-                String checkedAppId = ValidationUtils.requireNonNull(appId, "appId is required");
-                String checkedSellerId = ValidationUtils.requireNonNull(sellerId, "sellerId is required");
-                PrivateKey checkedPrivateKey = ValidationUtils.requireNonNull(appPrivateKey, "appPrivateKey is required");
-                PublicKey checkedPublicKey = ValidationUtils.requireNonNull(alipayPublicKey, "alipayPublicKey is required");
-
-                // 2. 未借用外部客户端时创建专属 HTTP 客户端，并显式禁用重试和重定向。
-                HttpClient effectiveHttpClient = httpClient;
-                boolean ownsHttpClient = effectiveHttpClient == null;
-                if (effectiveHttpClient == null) {
-                    effectiveHttpClient = HttpClient.builder()
-                            .retryOnConnectionFailure(false)
-                            .followRedirects(false)
-                            .followSslRedirects(false)
-                            .build();
+                JsonCodec jsonCodec = AlipayJsonUtils.codec();
+                AlipayTransport transport = new AlipayTransport(
+                        checkedAppId,
+                        checkedPrivateKey,
+                        checkedPublicKey,
+                        effectiveHttpClient,
+                        ownsHttpClient,
+                        baseUrl,
+                        clock,
+                        jsonCodec
+                );
+                AlipayPagePayRedirectFactory pagePayRedirects = new AlipayPagePayRedirectFactory(
+                        checkedAppId,
+                        checkedPrivateKey,
+                        baseUrl,
+                        clock,
+                        jsonCodec
+                );
+                return new AlipayClient(
+                        checkedAppId, checkedSellerId, checkedPublicKey, transport, pagePayRedirects);
+            } catch (RuntimeException exception) {
+                // 仅关闭本构建器创建的资源，调用方借出的客户端仍由调用方管理
+                if (ownsHttpClient) {
+                    effectiveHttpClient.close();
                 }
-
-                try {
-                    // 3. 将协议能力和资源所有权封装为共享运行时，再创建只暴露业务入口的根客户端。
-                    JsonCodec jsonCodec = AlipayJsonUtils.codec();
-                    AlipayTransport transport = new AlipayTransport(
-                            checkedAppId,
-                            checkedPrivateKey,
-                            checkedPublicKey,
-                            effectiveHttpClient,
-                            baseUrl,
-                            clock,
-                            jsonCodec
-                    );
-                    AlipayPagePayRedirectFactory pagePayRedirectFactory =
-                            new AlipayPagePayRedirectFactory(
-                                    checkedAppId,
-                                    checkedPrivateKey,
-                                    baseUrl,
-                                    clock,
-                                    jsonCodec
-                            );
-                    AlipayRuntime runtime = new AlipayRuntime(
-                            transport,
-                            pagePayRedirectFactory,
-                            effectiveHttpClient,
-                            ownsHttpClient
-                    );
-                    AlipayClient client = new AlipayClient(
-                            checkedAppId,
-                            checkedSellerId,
-                            checkedPublicKey,
-                            runtime
-                    );
-                    built = true;
-                    return client;
-                } catch (RuntimeException exception) {
-                    // 仅关闭本构建器创建的资源，调用方借出的客户端仍由调用方管理。
-                    if (ownsHttpClient) {
-                        effectiveHttpClient.close();
-                    }
-                    throw exception;
-                }
-            } finally {
-                // 4. 每次构建尝试后释放私钥引用，缩短敏感对象被构建器持有的时间。
-                appPrivateKey = null;
+                throw exception;
             }
         }
 
@@ -506,23 +461,10 @@ public final class AlipayClient implements AutoCloseable {
          * @param value 协议时钟
          * @return 当前构建器
          * @throws IllegalArgumentException 时钟为空
-         * @throws IllegalStateException    构建器已经成功使用
          */
         Builder clock(Clock value) {
-            ensureNotBuilt();
             clock = ValidationUtils.requireNonNull(value, "clock must not be null");
             return this;
-        }
-
-        /**
-         * 确认构建器尚未成功创建客户端。
-         *
-         * @throws IllegalStateException 构建器已经成功使用
-         */
-        private void ensureNotBuilt() {
-            if (built) {
-                throw new IllegalStateException("AlipayClient.Builder cannot be reused");
-            }
         }
     }
 }

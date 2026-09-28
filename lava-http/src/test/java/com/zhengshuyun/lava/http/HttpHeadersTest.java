@@ -96,65 +96,41 @@ class HttpHeadersTest {
     @Test
     void redactsSensitiveQueriesInsideUrlValuedHeadersWithoutSubstringFalsePositives() {
         HttpHeaders headers = HttpHeaders.of(
-                "Location", "https://example.test/next?accessToken=location-secret"
-                        + ";clientSecret=semicolon-secret&tokenizer=visible"
-                        + "#idToken=fragment-secret;secretary=fragment-visible",
-                "Referer", "/source?clientSecret=referer-secret&secretary=public"
-                        + "#/callback?refreshToken=referer-fragment-secret",
-                "Content-Location", "//user:password@example.test/item?refreshToken=content-secret",
-                "Link", "<https://example.test/next?idToken=link-secret>; rel=\"next\"",
-                "Refresh", "5; url='https://example.test/login?apiKey=refresh-secret'",
-                "X-Callback-URL", "https://example.test/callback?password=url-header-secret",
+                "Location", "https://example.test/next?accessToken=location-secret&tokenizer=visible"
+                        + "#idToken=fragment-secret",
+                "Referer", "/source?clientSecret=referer-secret&secretary=public",
+                "Content-Location", "https://user:password@example.test/item?refreshToken=content-secret",
                 "X-Tokenizer", "not-sensitive",
                 "X-Secretariat", "also-visible");
 
         HttpHeaders redacted = headers.redacted();
-        String diagnostic = redacted.toString();
         for (String secret : List.of(
                 "location-secret", "referer-secret", "password@example", "content-secret",
-                "link-secret", "refresh-secret", "url-header-secret", "semicolon-secret",
-                "fragment-secret", "referer-fragment-secret")) {
-            assertFalse(diagnostic.contains(secret));
-            assertFalse(headers.toString().contains(secret));
+                "fragment-secret")) {
+            assertFalse(redacted.toString().contains(secret), secret);
+            assertFalse(headers.toString().contains(secret), secret);
         }
         assertTrue(redacted.get("Location").contains("tokenizer=visible"));
+        assertTrue(redacted.get("Referer").startsWith("/source?"));
         assertTrue(redacted.get("Referer").contains("secretary=public"));
-        assertTrue(redacted.get("Location").contains("secretary=fragment-visible"));
         assertEquals("not-sensitive", redacted.get("X-Tokenizer"));
         assertEquals("also-visible", redacted.get("X-Secretariat"));
 
-        // 原始访问器仍返回传输数据，只有诊断快照会脱敏。
+        // 原始访问器仍返回传输数据，只有诊断快照会脱敏
         assertTrue(headers.get("Location").contains("location-secret"));
-        assertEquals("[REDACTED]", HttpHeaders.of("accessToken", "header-secret")
-                .redacted().get("accessToken"));
-        assertEquals("[REDACTED]", HttpHeaders.of("clientSecret", "header-secret")
-                .redacted().get("clientSecret"));
     }
 
     @Test
-    void handlesMalformedAndUnusualUrlHeaderValuesConservatively() {
-        assertFalse(HttpRedactionUtils.redactHeaderValue(
-                "Location", "relative?access%54oken=secret&plain=value").contains("secret"));
-        assertFalse(HttpRedactionUtils.redactHeaderValue(
-                "Location", "ftp://user:password@example.test/?token=secret").contains("password"));
-        assertFalse(HttpRedactionUtils.redactHeaderValue(
-                "Link", "broken<relative?token=secret").contains("secret"));
-        assertEquals("no-query", HttpRedactionUtils.redactHeaderValue("Location", "no-query"));
-        assertEquals("5; something=urlish", HttpRedactionUtils.redactHeaderValue(
-                "Refresh", "5; something=urlish"));
-        assertEquals("https://example.test/?tokenizer=value", HttpRedactionUtils.redactHeaderValue(
-                "X-Info", "https://example.test/?tokenizer=value"));
-        assertEquals("https://example.test/#tokenizer=visible;secretary=public",
-                HttpRedactionUtils.redactUrl(
-                        "https://example.test/#tokenizer=visible;secretary=public"));
-        assertFalse(HttpRedactionUtils.redactUrl(
-                        "https://example.test/?plain=value;clientSecret=query-secret"
-                                + "#accessToken=fragment-secret&plain=value")
-                .contains("secret"));
+    void sensitiveNameRuleAvoidsSubstringFalsePositives() {
+        assertTrue(HttpRedactionUtils.isSensitiveName("accessToken"));
+        assertTrue(HttpRedactionUtils.isSensitiveName("client_secret"));
+        assertTrue(HttpRedactionUtils.isSensitiveName("X-Api-Key"));
+        assertTrue(HttpRedactionUtils.isSensitiveName("Set-Cookie"));
+        assertTrue(HttpRedactionUtils.isSensitiveName("Proxy-Authorization"));
         assertFalse(HttpRedactionUtils.isSensitiveName("tokenizer"));
         assertFalse(HttpRedactionUtils.isSensitiveName("secretary"));
-        assertTrue(HttpRedactionUtils.isSensitiveName("myApiKey"));
-        assertTrue(HttpRedactionUtils.isSensitiveName("someAccessToken"));
+        assertEquals("no-query", HttpRedactionUtils.redactHeaderValue("Location", "no-query"));
+        assertEquals("[invalid URL]", HttpRedactionUtils.redactUrl("ftp://user:password@example.test/"));
     }
 
     @Test

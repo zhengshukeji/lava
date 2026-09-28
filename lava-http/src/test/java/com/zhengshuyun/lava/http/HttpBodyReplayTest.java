@@ -41,7 +41,7 @@ class HttpBodyReplayTest {
                             .build());
 
                     assertEquals(status, response.statusCode());
-                    assertEquals("/target", response.getLocation());
+                    assertEquals("/target", response.location());
                     assertEquals(List.of("upload-payload"), server.bodies);
                     assertFalse(input.closed, "请求完成后输入流仍归调用方所有");
                 }

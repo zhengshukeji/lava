@@ -16,6 +16,7 @@
 
 package com.zhengshuyun.lava.pay.wechat.exception;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -26,6 +27,7 @@ import org.jspecify.annotations.Nullable;
  * @param issue 具体错误原因
  * @param location 参数来源位置，例如 {@code body}、{@code url} 或 {@code query}
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record WechatPayApiErrorDetail(
         @Nullable String field,
         @Nullable String value,

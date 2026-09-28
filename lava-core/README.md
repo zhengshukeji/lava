@@ -64,7 +64,7 @@ RetryPolicy<String> policy = RetryPolicy.<String>builder()
         .listener(attempt -> metrics.record(attempt.attempt(), attempt.willRetry()))
         .build();
 
-String result = new RetryExecutor().execute(policy, service::load);
+String result = policy.call(service::load);
 ```
 
 `maxAttempts` 包含第一次调用。最终 checked exception 会原样抛出；`InterruptedException`

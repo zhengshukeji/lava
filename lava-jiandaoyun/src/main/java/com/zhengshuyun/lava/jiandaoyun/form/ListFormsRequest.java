@@ -44,8 +44,7 @@ public final class ListFormsRequest {
         limit = builder.limit;
         skip = builder.skip;
         if (limit != null) {
-            ValidationUtils.requireTrue(limit >= 1 && limit <= 100,
-                    "limit must be between 1 and 100");
+            ValidationUtils.requireTrue(limit >= 1, "limit must be positive");
         }
         if (skip != null) {
             ValidationUtils.requireTrue(skip >= 0, "skip must not be negative");

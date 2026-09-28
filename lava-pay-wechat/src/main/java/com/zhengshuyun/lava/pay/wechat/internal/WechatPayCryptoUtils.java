@@ -31,7 +31,6 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.time.Clock;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
@@ -78,11 +77,7 @@ public final class WechatPayCryptoUtils {
     public static String randomNonce() {
         byte[] bytes = new byte[16];
         RANDOM.nextBytes(bytes);
-        try {
-            return HexFormat.of().formatHex(bytes);
-        } finally {
-            Arrays.fill(bytes, (byte) 0);
-        }
+        return HexFormat.of().formatHex(bytes);
     }
 
     /**
@@ -108,27 +103,16 @@ public final class WechatPayCryptoUtils {
             long timestamp,
             String nonce
     ) {
-        // 1. 使用最终请求目标、时间戳、随机串和原始正文构造五行签名原文。
-        byte[] message = requestMessage(
-                method,
-                requestTarget(uri),
-                timestamp,
-                nonce,
-                body
-        );
-        try {
-            // 2. 使用商户 API 私钥签名，并按官方固定字段顺序生成 Authorization。
-            String signature = Base64.getEncoder().encodeToString(sign(privateKey, message));
-            return AUTHORIZATION_TYPE
-                    + " mchid=\"" + mchid + "\""
-                    + ",nonce_str=\"" + nonce + "\""
-                    + ",signature=\"" + signature + "\""
-                    + ",timestamp=\"" + timestamp + "\""
-                    + ",serial_no=\"" + merchantSerialNo + "\"";
-        } finally {
-            // 3. Authorization 生成后立即清除含完整业务正文的临时签名缓冲区。
-            Arrays.fill(message, (byte) 0);
-        }
+        // 1. 使用最终请求目标、时间戳、随机串和原始正文构造五行签名原文
+        byte[] message = signatureMessage(body, method, requestTarget(uri), Long.toString(timestamp), nonce);
+        // 2. 使用商户 API 私钥签名，并按官方固定字段顺序生成 Authorization
+        String signature = Base64.getEncoder().encodeToString(sign(privateKey, message));
+        return AUTHORIZATION_TYPE
+                + " mchid=\"" + mchid + "\""
+                + ",nonce_str=\"" + nonce + "\""
+                + ",signature=\"" + signature + "\""
+                + ",timestamp=\"" + timestamp + "\""
+                + ",serial_no=\"" + merchantSerialNo + "\"";
     }
 
     /**
@@ -168,7 +152,7 @@ public final class WechatPayCryptoUtils {
         try {
             timestamp = Long.parseLong(timestampText);
         } catch (NumberFormatException exception) {
-            throw new WechatPaySecurityException(WechatPaySecurityFailure.INVALID_TIMESTAMP);
+            throw new WechatPaySecurityException(WechatPaySecurityFailure.INVALID_TIMESTAMP, exception);
         }
         long now = clock.instant().getEpochSecond();
         if (timestamp < now - MAX_TIMESTAMP_SKEW_SECONDS
@@ -177,27 +161,21 @@ public final class WechatPayCryptoUtils {
         }
 
         // 3. 使用原始正文构造三行验签串；验签失败的探测流量按普通失败处理。
-        byte[] message = responseMessage(timestampText, nonce, body);
+        byte[] message = signatureMessage(body, timestampText, nonce);
+        byte[] decodedSignature;
         try {
-            byte[] decodedSignature;
-            try {
-                decodedSignature = Base64.getDecoder().decode(signature);
-            } catch (IllegalArgumentException exception) {
-                throw new WechatPaySecurityException(
-                        WechatPaySecurityFailure.INVALID_SIGNATURE);
-            }
-            try {
-                if (!CryptoUtils.rsaSha256Verify(publicKey, message, decodedSignature)) {
-                    throw new WechatPaySecurityException(
-                            WechatPaySecurityFailure.INVALID_SIGNATURE);
-                }
-            } finally {
-                Arrays.fill(decodedSignature, (byte) 0);
-            }
+            decodedSignature = Base64.getDecoder().decode(signature);
+        } catch (IllegalArgumentException exception) {
+            throw new WechatPaySecurityException(WechatPaySecurityFailure.INVALID_SIGNATURE, exception);
+        }
+        boolean valid;
+        try {
+            valid = CryptoUtils.rsaSha256Verify(publicKey, message, decodedSignature);
         } catch (CryptoException exception) {
+            throw new WechatPaySecurityException(WechatPaySecurityFailure.INVALID_SIGNATURE, exception);
+        }
+        if (!valid) {
             throw new WechatPaySecurityException(WechatPaySecurityFailure.INVALID_SIGNATURE);
-        } finally {
-            Arrays.fill(message, (byte) 0);
         }
     }
 
@@ -232,21 +210,17 @@ public final class WechatPayCryptoUtils {
         try {
             encrypted = Base64.getDecoder().decode(ciphertext);
         } catch (IllegalArgumentException exception) {
-            throw new WechatPaySecurityException(WechatPaySecurityFailure.DECRYPTION_FAILED);
+            throw new WechatPaySecurityException(WechatPaySecurityFailure.DECRYPTION_FAILED, exception);
         }
         try {
-            // 3. 由 AES-GCM 认证标签同时验证密文和附加数据完整性。
+            // 3. 由 AES-GCM 认证标签同时验证密文和附加数据完整性
             return CryptoUtils.aesGcmDecrypt(
                     apiV3Key,
                     nonce.getBytes(StandardCharsets.UTF_8),
-                    (associatedData == null ? "" : associatedData)
-                            .getBytes(StandardCharsets.UTF_8),
-                    encrypted
-            );
+                    (associatedData == null ? "" : associatedData).getBytes(StandardCharsets.UTF_8),
+                    encrypted);
         } catch (CryptoException | IllegalArgumentException exception) {
-            throw new WechatPaySecurityException(WechatPaySecurityFailure.DECRYPTION_FAILED);
-        } finally {
-            Arrays.fill(encrypted, (byte) 0);
+            throw new WechatPaySecurityException(WechatPaySecurityFailure.DECRYPTION_FAILED, exception);
         }
     }
 
@@ -276,101 +250,22 @@ public final class WechatPayCryptoUtils {
         try {
             return CryptoUtils.rsaSha256Sign(privateKey, message);
         } catch (CryptoException exception) {
-            throw new WechatPayProtocolException("无法生成微信支付请求签名");
+            throw new WechatPayProtocolException("无法生成微信支付请求签名", exception);
         }
     }
 
     /**
-     * 按 HTTP 方法、请求目标、时间戳、随机串和正文构造微信支付五行请求签名原文。
-     *
-     * @param method    最终发送的 HTTP 方法名称
-     * @param target    最终 URI 的原始路径及可选查询串
-     * @param timestamp Unix 时间戳，单位为秒
-     * @param nonce     本次请求使用的随机串
-     * @param body      最终发送的原始请求正文字节；无正文时传入空数组
-     * @return 以换行符分隔四行元数据并追加原始正文和结尾换行符的签名字节
+     * 构造微信支付签名原文：每个字段各占一行，最后一行是原始正文，每行以 {@code \n} 结尾。
      */
-    private static byte[] requestMessage(
-            String method,
-            String target,
-            long timestamp,
-            String nonce,
-            byte[] body
-    ) {
-        return lines(
-                method,
-                target,
-                Long.toString(timestamp),
-                nonce,
-                body
-        );
-    }
-
-    /**
-     * 按时间戳、随机串和原始响应正文构造微信支付三行响应验签原文。
-     *
-     * @param timestamp 微信支付响应签名时间戳文本
-     * @param nonce     微信支付响应签名随机串
-     * @param body      未经解析或重新编码的原始响应正文字节
-     * @return 以换行符分隔两行元数据并追加原始正文和结尾换行符的验签字节
-     */
-    private static byte[] responseMessage(String timestamp, String nonce, byte[] body) {
-        return lines(timestamp, nonce, body);
-    }
-
-    /**
-     * 以 UTF-8 和换行符顺序拼接四行签名元数据及原始正文。
-     *
-     * @param first  第一行元数据
-     * @param second 第二行元数据
-     * @param third  第三行元数据
-     * @param fourth 第四行元数据
-     * @param body   不做字符集转换的原始正文字节
-     * @return 包含四行元数据、正文和结尾换行符的新字节数组
-     */
-    private static byte[] lines(
-            String first,
-            String second,
-            String third,
-            String fourth,
-            byte[] body
-    ) {
+    private static byte[] signatureMessage(byte[] body, String... lines) {
         ByteArrayOutputStream output = new ByteArrayOutputStream(body.length + 128);
-        writeLine(output, first);
-        writeLine(output, second);
-        writeLine(output, third);
-        writeLine(output, fourth);
+        for (String line : lines) {
+            output.writeBytes(line.getBytes(StandardCharsets.UTF_8));
+            output.write('\n');
+        }
         output.writeBytes(body);
         output.write('\n');
         return output.toByteArray();
-    }
-
-    /**
-     * 以 UTF-8 和换行符顺序拼接两行签名元数据及原始正文。
-     *
-     * @param first  第一行元数据
-     * @param second 第二行元数据
-     * @param body   不做字符集转换的原始正文字节
-     * @return 包含两行元数据、正文和结尾换行符的新字节数组
-     */
-    private static byte[] lines(String first, String second, byte[] body) {
-        ByteArrayOutputStream output = new ByteArrayOutputStream(body.length + 64);
-        writeLine(output, first);
-        writeLine(output, second);
-        output.writeBytes(body);
-        output.write('\n');
-        return output.toByteArray();
-    }
-
-    /**
-     * 将单行 UTF-8 文本及其结尾换行符写入签名缓冲区。
-     *
-     * @param output 当前签名原文缓冲区；方法只追加内容，不关闭缓冲区
-     * @param value  不包含协议分隔换行符的元数据文本
-     */
-    private static void writeLine(ByteArrayOutputStream output, String value) {
-        output.writeBytes(value.getBytes(StandardCharsets.UTF_8));
-        output.write('\n');
     }
 
     /**

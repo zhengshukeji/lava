@@ -67,20 +67,15 @@ public final class HttpRequest {
      */
     private final HttpHeaders headers;
     /**
-     * 高级 API 提供的 OkHttp 原生请求体。
+     * 请求体；只在发送时适配为 OkHttp 请求体。
      */
-    private final @Nullable RequestBody body;
-    /**
-     * 常规 API 使用的传输无关请求体。
-     */
-    private final @Nullable HttpBody portableBody;
+    private final @Nullable HttpBody body;
 
     private HttpRequest(Builder builder) {
         method = builder.method;
         charset = builder.charset;
         headers = builder.headers.build();
         body = builder.body;
-        portableBody = builder.portableBody;
         rawUrl = builder.url;
         queryParams = List.copyOf(builder.queryParams);
         url = resolveUrl(builder.url, builder.queryParams);
@@ -91,7 +86,7 @@ public final class HttpRequest {
      *
      * @return 已包含请求级 query 参数的 URL
      */
-    public String getUrl() {
+    public String url() {
         return url;
     }
 
@@ -100,7 +95,7 @@ public final class HttpRequest {
      *
      * @return 请求方法
      */
-    public HttpMethod getMethod() {
+    public HttpMethod method() {
         return method;
     }
 
@@ -109,7 +104,7 @@ public final class HttpRequest {
      *
      * @return 请求头
      */
-    public HttpHeaders getHeaders() {
+    public HttpHeaders headers() {
         return headers;
     }
 
@@ -126,11 +121,7 @@ public final class HttpRequest {
     }
 
     Request toOkHttpRequest(@Nullable URI baseUrl, HttpHeaders defaults) {
-        RequestBody requestBody = body;
-        if (requestBody == null && portableBody != null) {
-            // 传输无关请求体只在真正发送时适配，避免公共 API 泄露 OkHttp 类型。
-            requestBody = HttpBodyUtils.toOkHttp(portableBody);
-        }
+        RequestBody requestBody = body == null ? null : HttpBodyUtils.toOkHttp(body);
         if (requestBody != null && !method.permitsRequestBody()) {
             throw new IllegalStateException("HTTP " + method + " must not have a request body");
         }
@@ -141,7 +132,7 @@ public final class HttpRequest {
         return new Request.Builder()
                 .url(resolvedUrl(baseUrl))
                 .headers(effectiveHeaders.toOkHttp())
-                .method(method.getName(), requestBody)
+                .method(method.name(), requestBody)
                 .build();
     }
 
@@ -170,10 +161,8 @@ public final class HttpRequest {
         Builder builder = builder(rawUrl, method, charset);
         copyQueryParams(builder);
         builder.headers(headers);
-        if (portableBody != null) {
-            builder.body(portableBody);
-        } else if (body != null) {
-            builder.okHttpBody(body);
+        if (body != null) {
+            builder.body(body);
         }
         builder.header(name, value);
         return builder.build();
@@ -403,8 +392,7 @@ public final class HttpRequest {
         private final Charset charset;
         private final HttpHeaders.Builder headers = HttpHeaders.builder();
         private final List<QueryParam> queryParams = new ArrayList<>();
-        private @Nullable RequestBody body;
-        private @Nullable HttpBody portableBody;
+        private @Nullable HttpBody body;
 
         private Builder(String url, HttpMethod method, Charset charset) {
             url = ValidationUtils.requireNotBlank(url, "url must not be blank");
@@ -493,25 +481,18 @@ public final class HttpRequest {
 
         public Builder body(String value, String contentType) {
             ValidationUtils.requireNonNull(value, "body must not be null");
-            body = RequestBody.create(value.getBytes(charset), requireMediaType(contentType));
-            portableBody = null;
-            return this;
+            return body(HttpBodyUtils.bytes(value.getBytes(charset), contentType));
         }
 
         public Builder body(byte[] value, String contentType) {
-            ValidationUtils.requireNonNull(value, "body must not be null");
-            body = RequestBody.create(value.clone(), requireMediaType(contentType));
-            portableBody = null;
-            return this;
+            return body(HttpBodyUtils.bytes(value, contentType));
         }
 
         /**
          * 设置不依赖 OkHttp 的请求体。
          */
         public Builder body(HttpBody value) {
-            ValidationUtils.requireNonNull(value, "body must not be null");
-            portableBody = value;
-            body = null;
+            this.body = ValidationUtils.requireNonNull(value, "body must not be null");
             return this;
         }
 
@@ -533,22 +514,16 @@ public final class HttpRequest {
             ValidationUtils.requireNonNull(params, "params must not be null");
             FormBody.Builder form = new FormBody.Builder(charset);
             params.forEach(form::add);
-            body = form.build();
-            portableBody = null;
-            return this;
+            return body(HttpBodyUtils.fromOkHttp(form.build()));
         }
 
         public Builder multipartBody(MultipartBuilder multipart) {
             ValidationUtils.requireNonNull(multipart, "multipart must not be null");
-            body = multipart.build();
-            portableBody = null;
-            return this;
+            return body(HttpBodyUtils.fromOkHttp(multipart.build()));
         }
 
-        Builder okHttpBody(@Nullable RequestBody body) {
-            this.body = body;
-            this.portableBody = null;
-            return this;
+        Builder okHttpBody(RequestBody body) {
+            return body(HttpBodyUtils.fromOkHttp(body));
         }
 
         public HttpRequest build() {

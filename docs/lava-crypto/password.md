@@ -3,7 +3,7 @@
 ## 基本使用
 
 ```java
-PasswordHasher hasher = PasswordHasher.create();
+PasswordHasher hasher = new PasswordHasher();
 char[] password = readPassword();
 
 try {
@@ -32,37 +32,20 @@ try {
 ## 自定义策略
 
 ```java
-PasswordHashPolicy.Generation generation =
-        new PasswordHashPolicy.Generation(
-                65_536,
-                3,
-                1,
-                16,
-                32
-        );
-
-PasswordHashPolicy.VerificationLimits limits =
-        new PasswordHashPolicy.VerificationLimits(
-                262_144,
-                10,
-                16,
-                64,
-                64,
-                1_024
-        );
-
-PasswordHasher hasher = PasswordHasher.withPolicy(
-        new PasswordHashPolicy(generation, limits)
+PasswordHasher hasher = new PasswordHasher(
+        new PasswordHashPolicy(65_536, 3, 1, 16, 32)
 );
 ```
 
-生成参数和验证资源上限分离，避免攻击者提交超大 PHC 参数触发高额内存分配或 CPU 消耗。
+参数依次为内存（KiB）、迭代次数、并行通道数、盐字节数、哈希字节数，低于 Argon2 规范下限时抛出 `IllegalArgumentException`。
+
+验证时以 PHC 字符串中记录的参数计算，因此调整策略后旧哈希仍可验证；另有固定的安全上限（内存 4 GiB、迭代 1000 次、并行 255），防止被篡改的哈希触发超大内存分配。
 
 ## 验证语义
 
 - 普通密码不匹配返回 `false`；
-- 畸形、不支持或超过资源上限的 PHC 抛出 `CryptoException`；
-- `needsRehash(...)` 只接受合法且处于限制内的 PHC；
+- 畸形、不支持或超过安全上限的 PHC 抛出 `CryptoException`；
+- `needsRehash(...)` 只接受合法的 PHC；
 - PHC 参数与当前生成策略不一致时返回需要升级。
 
 不要记录密码、完整 PHC 或派生中间值。PHC 虽不包含明文密码，仍属于敏感认证数据。

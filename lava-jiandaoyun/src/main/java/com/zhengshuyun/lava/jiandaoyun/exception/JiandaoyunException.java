@@ -17,6 +17,7 @@
 package com.zhengshuyun.lava.jiandaoyun.exception;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
+import org.jspecify.annotations.Nullable;
 
 import java.io.Serial;
 
@@ -31,11 +32,21 @@ public abstract class JiandaoyunException extends RuntimeException {
     private static final long serialVersionUID = 1L;
 
     /**
-     * 创建不保留底层异常对象的简道云异常。
+     * 创建没有底层异常的简道云异常。
      *
      * @param message 不包含密钥和原始报文的诊断消息
      */
     protected JiandaoyunException(String message) {
         super(ValidationUtils.requireNotBlank(message, "message must not be blank"));
+    }
+
+    /**
+     * 创建保留底层异常的简道云异常。
+     *
+     * @param message 不包含密钥和原始报文的诊断消息
+     * @param cause   底层异常；没有时为 null
+     */
+    protected JiandaoyunException(String message, @Nullable Throwable cause) {
+        super(ValidationUtils.requireNotBlank(message, "message must not be blank"), cause);
     }
 }

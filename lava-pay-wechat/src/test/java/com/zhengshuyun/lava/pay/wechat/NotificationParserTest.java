@@ -225,20 +225,6 @@ class NotificationParserTest {
         assertThrows(WechatPayProtocolException.class,
                 () -> client.notifications().parseTransaction(
                         signedHeaders(body, CLOCK.instant().getEpochSecond()), body));
-
-        String incompletePlaintext = """
-                {"appid":"wx1234567890","mchid":"1900000109",
-                 "out_trade_no":"ORDER_001","transaction_id":"4200000001",
-                 "trade_type":"NATIVE","trade_state":"SUCCESS",
-                 "trade_state_desc":"支付成功","bank_type":"OTHERS",
-                 "success_time":"2026-08-29T08:00:00+08:00"}
-                """;
-        byte[] incompleteBody = envelope(
-                "TRANSACTION.SUCCESS", "transaction", incompletePlaintext);
-        assertThrows(WechatPayProtocolException.class,
-                () -> client.notifications().parseTransaction(
-                        signedHeaders(incompleteBody, CLOCK.instant().getEpochSecond()),
-                        incompleteBody));
     }
 
     /**

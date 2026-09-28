@@ -31,17 +31,14 @@ public final class RefundGoodsDetail {
      * 使用构建期参数创建并校验不可变退款商品明细。
      *
      * @param builder 已收集商品编号、退款金额和可选外部商品信息的构建器
-     * @throws IllegalArgumentException 商品编号或退款金额缺失，或任一字段超过支付宝约束
+     * @throws IllegalArgumentException 商品编号或退款金额缺失，或退款金额不是正数
      */
     private RefundGoodsDetail(Builder builder) {
-        goodsId = AlipayValidationUtils.requireIdentifier(builder.goodsId, "goodsId", 32);
-        refundAmount = AlipayValidationUtils.requirePositiveAmount(
-                ValidationUtils.requireNonNull(builder.refundAmount,
-                        "refundAmount is required"), 999_999_999L, "refundAmount");
-        outItemId = AlipayValidationUtils.requireOptionalText(
-                builder.outItemId, "outItemId", 64);
-        outSkuId = AlipayValidationUtils.requireOptionalText(
-                builder.outSkuId, "outSkuId", 64);
+        goodsId = ValidationUtils.requireNotBlank(builder.goodsId, "goodsId must not be blank");
+        refundAmount = AlipayValidationUtils.requirePositiveAmount(ValidationUtils.requireNonNull(builder.refundAmount,
+                        "refundAmount is required"), "refundAmount");
+        outItemId = builder.outItemId;
+        outSkuId = builder.outSkuId;
         outCertificateNos = List.copyOf(builder.outCertificateNos);
     }
 
@@ -167,8 +164,7 @@ public final class RefundGoodsDetail {
          * @return 当前构建器
          */
         public Builder addOutCertificateNo(String value) {
-            outCertificateNos.add(AlipayValidationUtils.requireIdentifier(
-                    value, "outCertificateNo", 128));
+            outCertificateNos.add(ValidationUtils.requireNotBlank(value, "outCertificateNo must not be blank"));
             return this;
         }
 

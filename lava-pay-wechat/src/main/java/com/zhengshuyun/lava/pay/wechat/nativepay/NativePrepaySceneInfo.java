@@ -40,12 +40,7 @@ public record NativePrepaySceneInfo(
         payerClientIp = WechatPayValidationUtils.requireIpAddress(
                 payerClientIp, "payerClientIp");
         if (deviceId != null) {
-            WechatPayValidationUtils.requireText(
-                    deviceId,
-                    "deviceId",
-                    1,
-                    32
-            );
+            ValidationUtils.requireNotBlank(deviceId, "deviceId must not be blank");
         }
     }
 
@@ -136,35 +131,15 @@ public record NativePrepaySceneInfo(
          * 校验门店信息。
          */
         public StoreInfo {
-            id = WechatPayValidationUtils.requireText(
-                    id,
-                    "storeInfo.id",
-                    1,
-                    32
-            );
+            id = ValidationUtils.requireNotBlank(id, "storeInfo.id must not be blank");
             if (name != null) {
-                WechatPayValidationUtils.requireText(
-                        name,
-                        "storeInfo.name",
-                        1,
-                        256
-                );
+                ValidationUtils.requireNotBlank(name, "storeInfo.name must not be blank");
             }
             if (areaCode != null) {
-                WechatPayValidationUtils.requireText(
-                        areaCode,
-                        "storeInfo.areaCode",
-                        1,
-                        32
-                );
+                ValidationUtils.requireNotBlank(areaCode, "storeInfo.areaCode must not be blank");
             }
             if (address != null) {
-                WechatPayValidationUtils.requireText(
-                        address,
-                        "storeInfo.address",
-                        1,
-                        512
-                );
+                ValidationUtils.requireNotBlank(address, "storeInfo.address must not be blank");
             }
         }
 
@@ -173,87 +148,87 @@ public record NativePrepaySceneInfo(
          *
          * @return 新构建器
          */
-        public static StoreInfoBuilder builder() {
-            return new StoreInfoBuilder();
-        }
-    }
-
-    /**
-     * 门店信息构建器。
-     */
-    public static final class StoreInfoBuilder {
-        /** 构建期门店编号。 */
-        private @Nullable String id;
-        /** 构建期门店名称。 */
-        private @Nullable String name;
-        /** 构建期地区编码。 */
-        private @Nullable String areaCode;
-        /** 构建期门店详细地址。 */
-        private @Nullable String address;
-
-        /** 创建空门店信息构建器。 */
-        private StoreInfoBuilder() {
+        public static Builder builder() {
+            return new Builder();
         }
 
         /**
-         * 配置门店编号。
-         *
-         * @param value 门店编号
-         * @return 当前构建器
+         * 门店信息构建器。
          */
-        public StoreInfoBuilder id(String value) {
-            id = value;
-            return this;
-        }
+        public static final class Builder {
+            /** 构建期门店编号。 */
+            private @Nullable String id;
+            /** 构建期门店名称。 */
+            private @Nullable String name;
+            /** 构建期地区编码。 */
+            private @Nullable String areaCode;
+            /** 构建期门店详细地址。 */
+            private @Nullable String address;
 
-        /**
-         * 配置门店名称。
-         *
-         * @param value 门店名称
-         * @return 当前构建器
-         */
-        public StoreInfoBuilder name(String value) {
-            name = value;
-            return this;
-        }
+            /** 创建空门店信息构建器。 */
+            private Builder() {
+            }
 
-        /**
-         * 配置地区编码。
-         *
-         * @param value 地区编码
-         * @return 当前构建器
-         */
-        public StoreInfoBuilder areaCode(String value) {
-            areaCode = value;
-            return this;
-        }
+            /**
+             * 配置门店编号。
+             *
+             * @param value 门店编号
+             * @return 当前构建器
+             */
+            public Builder id(String value) {
+                id = value;
+                return this;
+            }
 
-        /**
-         * 配置门店详细地址。
-         *
-         * @param value 门店详细地址
-         * @return 当前构建器
-         */
-        public StoreInfoBuilder address(String value) {
-            address = value;
-            return this;
-        }
+            /**
+             * 配置门店名称。
+             *
+             * @param value 门店名称
+             * @return 当前构建器
+             */
+            public Builder name(String value) {
+                name = value;
+                return this;
+            }
 
-        /**
-         * 校验并创建不可变门店信息。
-         *
-         * @return 门店信息
-         */
-        public StoreInfo build() {
-            return new StoreInfo(
-                    ValidationUtils.requireNonNull(
-                            id,
-                            "storeInfo.id is required"
-                    ),
-                    name,
-                    areaCode,
-                    address
-            );
+            /**
+             * 配置地区编码。
+             *
+             * @param value 地区编码
+             * @return 当前构建器
+             */
+            public Builder areaCode(String value) {
+                areaCode = value;
+                return this;
+            }
+
+            /**
+             * 配置门店详细地址。
+             *
+             * @param value 门店详细地址
+             * @return 当前构建器
+             */
+            public Builder address(String value) {
+                address = value;
+                return this;
+            }
+
+            /**
+             * 校验并创建不可变门店信息。
+             *
+             * @return 门店信息
+             */
+            public StoreInfo build() {
+                return new StoreInfo(
+                        ValidationUtils.requireNonNull(
+                                id,
+                                "storeInfo.id is required"
+                        ),
+                        name,
+                        areaCode,
+                        address
+                );
+            }
         }
     }
 }

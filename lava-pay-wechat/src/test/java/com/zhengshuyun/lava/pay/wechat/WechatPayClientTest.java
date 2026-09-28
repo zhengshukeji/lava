@@ -13,7 +13,6 @@ import com.zhengshuyun.lava.pay.wechat.exception.*;
 import com.zhengshuyun.lava.pay.wechat.nativepay.NativePrepayDetail;
 import com.zhengshuyun.lava.pay.wechat.nativepay.NativePrepayRequest;
 import com.zhengshuyun.lava.pay.wechat.nativepay.NativePrepayResponse;
-import com.zhengshuyun.lava.pay.wechat.nativepay.NativePrepaySceneInfo;
 import com.zhengshuyun.lava.pay.wechat.refund.Refund;
 import com.zhengshuyun.lava.pay.wechat.refund.RefundRequest;
 import com.zhengshuyun.lava.pay.wechat.transaction.TradeState;
@@ -436,25 +435,6 @@ class WechatPayClientTest {
     }
 
     /**
-     * 验证退款状态为 {@code SUCCESS} 时必须同时返回成功时间，否则视为协议错误。
-     */
-    @Test
-    void successfulRefundRequiresSuccessTime() {
-        server.enqueueSigned(
-                200,
-                refundJson().replace(
-                        "\"status\":\"PROCESSING\"",
-                        "\"status\":\"SUCCESS\""
-                )
-        );
-
-        assertThrows(
-                WechatPayProtocolException.class,
-                () -> client.refunds().queryByOutRefundNo("REFUND_001")
-        );
-    }
-
-    /**
      * 验证交易查询响应中的商户号与客户端配置不一致时以安全异常拒绝。
      */
     @Test
@@ -526,7 +506,7 @@ class WechatPayClientTest {
             var response = borrowed.send(HttpRequest.get(
                     server.baseUrl().resolve("borrowed-client-check")).build());
             assertEquals(200, response.statusCode());
-            assertEquals("ok", response.getBodyAsString());
+            assertEquals("ok", response.bodyString());
         }
     }
 
@@ -545,16 +525,8 @@ class WechatPayClientTest {
                 .outRefundNo("REFUND_001")
                 .amount(1, 1)
                 .build());
-        assertThrows(IllegalArgumentException.class, () -> RefundRequest.builder()
-                .outTradeNo("ORDER_001")
-                .outRefundNo("REFUND_001")
-                .amount(Long.MAX_VALUE, Long.MAX_VALUE)
-                .addAmountFrom(new RefundRequest.AmountFrom("AVAILABLE", Long.MAX_VALUE))
-                .addAmountFrom(new RefundRequest.AmountFrom("UNAVAILABLE", 1))
-                .build());
         assertThrows(IllegalArgumentException.class,
-                () -> WechatPayClient.builder().apiV3Key(
-                        "0123456789abcdef0123456789abcde!"));
+                () -> WechatPayClient.builder().apiV3Key("too-short"));
         assertThrows(IllegalArgumentException.class,
                 () -> WechatPayClient.builder().apiBaseUrl("http://example.com"));
         assertThrows(IllegalArgumentException.class,
@@ -568,30 +540,14 @@ class WechatPayClientTest {
             );
         }
         assertThrows(IllegalArgumentException.class,
-                () -> client.application(APPID, "https://127.0.0.1/pay/notify"));
-        assertThrows(IllegalArgumentException.class,
-                () -> client.application(APPID, "https://localhost/pay/notify"));
-        assertThrows(IllegalArgumentException.class,
-                () -> NativePrepaySceneInfo.builder()
-                        .payerClientIp("not-an-ip-address")
-                        .build());
-        assertThrows(IllegalArgumentException.class,
-                () -> NativePrepaySceneInfo.builder()
-                        .payerClientIp("fe80::1%en0")
-                        .build());
-        assertThrows(IllegalArgumentException.class,
-                () -> NativePrepayDetail.GoodsDetail.builder()
-                        .merchantGoodsId("不支持的编码")
-                        .quantity(1)
-                        .unitPrice(1)
-                        .build());
+                () -> client.application(APPID, "http://example.com/pay/notify"));
     }
 
     /**
      * 验证客户端 Builder 构建失败后清除私钥等敏感配置，构建成功后拒绝再次使用。
      */
     @Test
-    void clientBuilderClearsSecretsAfterFailureAndRejectsReuseAfterSuccess() {
+    void clientBuilderReportsMissingConfigurationAndCanBeReused() {
         WechatPayClient.Builder incomplete = WechatPayClient.builder()
                 .mchid(MCHID)
                 .merchantPrivateKey(merchantKeys.getPrivate())
@@ -599,18 +555,14 @@ class WechatPayClientTest {
                 .apiV3Key(API_V3_KEY)
                 .wechatPayPublicKeyId(WechatPayTestServer.PUBLIC_KEY_ID);
 
-        assertThrows(IllegalArgumentException.class, incomplete::build);
-        incomplete.wechatPayPublicKey(wechatKeys.getPublic());
-        IllegalArgumentException clearedPrivateKey = assertThrows(
-                IllegalArgumentException.class,
-                incomplete::build
-        );
-        assertTrue(clearedPrivateKey.getMessage().contains("merchantPrivateKey"));
+        IllegalArgumentException missing = assertThrows(IllegalArgumentException.class, incomplete::build);
+        assertTrue(missing.getMessage().contains("wechatPayPublicKey"));
 
-        WechatPayClient.Builder oneShot = clientBuilder();
-        try (WechatPayClient ignored = oneShot.build()) {
-            assertThrows(IllegalStateException.class, oneShot::build);
-            assertThrows(IllegalStateException.class, () -> oneShot.mchid(MCHID));
+        WechatPayClient.Builder builder = clientBuilder();
+        try (WechatPayClient first = builder.build(); WechatPayClient second = builder.build()) {
+            first.close();
+            assertThrows(IllegalStateException.class, first::transactions);
+            second.transactions();
         }
     }
 

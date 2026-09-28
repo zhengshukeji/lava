@@ -39,7 +39,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class LavaScheduler implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(LavaScheduler.class);
-    private static final int MAX_MISFIRES_PER_RESUME = 10_000;
+    /**
+     * 晚于计划时间超过该宽限即视为错过触发；错过的多次触发合并为一次立即执行。
+     */
     private static final Duration MISFIRE_GRACE = Duration.ofMillis(10);
 
     private final Clock clock;
@@ -98,18 +100,18 @@ public final class LavaScheduler implements AutoCloseable {
     }
 
     /**
-     * 使用 RFC 9562 UUIDv7 标识和默认选项注册任务。
+     * 使用 RFC 9562 UUIDv7 标识注册任务，重叠执行时跳过本次。
      *
      * @param task    待执行的任务
      * @param trigger 决定执行时间的触发器
      * @return 已注册任务的生命周期句柄
      */
     public ScheduledTask schedule(Runnable task, Trigger trigger) {
-        return schedule(IdUtils.nextUUIDv7String(), task, trigger, ScheduleOptions.DEFAULT);
+        return schedule(IdUtils.nextUUIDv7String(), task, trigger, ConcurrencyPolicy.SKIP_IF_RUNNING);
     }
 
     /**
-     * 使用指定标识和默认选项注册任务。
+     * 使用指定标识注册任务，重叠执行时跳过本次。
      *
      * @param id      全局唯一且非空白的任务标识
      * @param task    待执行的任务
@@ -117,26 +119,29 @@ public final class LavaScheduler implements AutoCloseable {
      * @return 已注册任务的生命周期句柄
      */
     public ScheduledTask schedule(String id, Runnable task, Trigger trigger) {
-        return schedule(id, task, trigger, ScheduleOptions.DEFAULT);
+        return schedule(id, task, trigger, ConcurrencyPolicy.SKIP_IF_RUNNING);
     }
 
     /**
-     * 使用指定标识和执行选项注册任务。
+     * 使用指定标识和并发策略注册任务。
      *
-     * @param id      全局唯一且非空白的任务标识
-     * @param task    待执行的任务
-     * @param trigger 决定执行时间的触发器
-     * @param options 任务的并发和错过触发策略
+     * <p>错过触发（暂停后恢复、协调线程停顿或时钟前跳）时，错过的多次触发合并为一次立即执行，
+     * 随后从当前时刻继续按触发器推进，与 Quartz 对 Cron 的默认 misfire 处理一致。
+     *
+     * @param id                全局唯一且非空白的任务标识
+     * @param task              待执行的任务
+     * @param trigger           决定执行时间的触发器
+     * @param concurrencyPolicy 上一次执行尚未结束时的处理方式
      * @return 已注册任务的生命周期句柄
      */
     public ScheduledTask schedule(
-            String id, Runnable task, Trigger trigger, ScheduleOptions options) {
+            String id, Runnable task, Trigger trigger, ConcurrencyPolicy concurrencyPolicy) {
         String taskId = requireNotBlank(id, "id");
         ValidationUtils.requireNonNull(task, "task must not be null");
         ValidationUtils.requireNonNull(trigger, "trigger must not be null");
-        ValidationUtils.requireNonNull(options, "options must not be null");
+        ValidationUtils.requireNonNull(concurrencyPolicy, "concurrencyPolicy must not be null");
 
-        TaskControl control = new TaskControl(taskId, task, trigger, options);
+        TaskControl control = new TaskControl(taskId, task, trigger, concurrencyPolicy);
         synchronized (lifecycleLock) {
             ensureOpen();
             TaskControl existing = tasks.putIfAbsent(taskId, control);
@@ -338,24 +343,22 @@ public final class LavaScheduler implements AutoCloseable {
         private final String id;
         private final Runnable task;
         private final Trigger trigger;
-        private final ScheduleOptions options;
+        private final ConcurrencyPolicy concurrencyPolicy;
         private final Object lock = new Object();
-        private final ArrayDeque<Instant> pending = new ArrayDeque<>();
         private final Set<Execution> executions = new HashSet<>();
 
         private boolean paused;
         private boolean cancelled;
-        private boolean drainingPending;
         private int running;
         private @Nullable Instant nextExecution;
         private @Nullable Instant previousExecution;
         private @Nullable ScheduledFuture<?> wakeup;
 
-        TaskControl(String id, Runnable task, Trigger trigger, ScheduleOptions options) {
+        TaskControl(String id, Runnable task, Trigger trigger, ConcurrencyPolicy concurrencyPolicy) {
             this.id = id;
             this.task = task;
             this.trigger = trigger;
-            this.options = options;
+            this.concurrencyPolicy = concurrencyPolicy;
         }
 
         String id() {
@@ -379,22 +382,13 @@ public final class LavaScheduler implements AutoCloseable {
         }
 
         void pause() {
-            List<Instant> dropped;
             synchronized (lock) {
                 requireActive();
-                if (paused) {
-                    return;
-                }
                 paused = true;
                 if (wakeup != null) {
                     wakeup.cancel(false);
                     wakeup = null;
                 }
-                dropped = new ArrayList<>(pending);
-                pending.clear();
-            }
-            for (Instant scheduledAt : dropped) {
-                emitTerminal(TaskEventStatus.SKIPPED, scheduledAt, null, "task paused");
             }
         }
 
@@ -424,7 +418,6 @@ public final class LavaScheduler implements AutoCloseable {
         }
 
         boolean deactivate(boolean mayInterruptIfRunning) {
-            List<Instant> dropped;
             synchronized (lock) {
                 if (cancelled) {
                     return false;
@@ -434,11 +427,6 @@ public final class LavaScheduler implements AutoCloseable {
                     wakeup.cancel(false);
                     wakeup = null;
                 }
-                dropped = new ArrayList<>(pending);
-                pending.clear();
-            }
-            for (Instant scheduledAt : dropped) {
-                emitTerminal(TaskEventStatus.SKIPPED, scheduledAt, null, "task cancelled");
             }
             // 始终取消已提交但尚未开始的执行；只有调用者明确要求时才打断运行中的执行。
             cancelExecutions(mayInterruptIfRunning, null);
@@ -481,13 +469,14 @@ public final class LavaScheduler implements AutoCloseable {
             }
         }
 
+        /**
+         * 安排下一次唤醒；若计划时刻已错过，则把错过的触发合并为一次立即执行，
+         * 再从当前时刻推进到下一个未来触发时刻。
+         */
         private void resolveMisfiresAndSchedule() {
-            int processed = 0;
             while (true) {
                 Instant scheduledAt;
                 Instant now = clock.instant();
-                MisfirePolicy policy = options.misfirePolicy();
-                boolean catchUpLimitReached;
                 synchronized (lock) {
                     if (cancelled || paused || nextExecution == null) {
                         return;
@@ -498,43 +487,11 @@ public final class LavaScheduler implements AutoCloseable {
                         scheduleWakeupLocked(scheduledAt, now);
                         return;
                     }
-                    catchUpLimitReached = processed >= MAX_MISFIRES_PER_RESUME;
-                    if (catchUpLimitReached) {
-                        // 直接跳到当前时刻之后，避免遍历恶意构造或跨越多年的积压。
-                        nextExecution = trigger.nextFireTime(now);
-                    } else {
-                        nextExecution = trigger.nextFireTime(scheduledAt);
-                    }
-                }
-
-                if (catchUpLimitReached) {
-                    // 事件对应首个未处理的时刻，不能与上一条已处理 occurrence 产生重复终态。
-                    emitTerminal(
-                            TaskEventStatus.REJECTED,
-                            scheduledAt,
-                            null,
-                            "misfire catch-up limit reached");
-                    continue;
-                }
-
-                processed++;
-                if (policy == MisfirePolicy.SKIP) {
-                    emitTerminal(TaskEventStatus.SKIPPED, scheduledAt, null, "misfire");
-                } else {
-                    offerOccurrence(scheduledAt);
-                    if (policy == MisfirePolicy.FIRE_ONCE) {
-                        skipRemainingMisfires(now);
-                    }
-                }
-            }
-        }
-
-        private void skipRemainingMisfires(Instant now) {
-            synchronized (lock) {
-                if (nextExecution != null && !nextExecution.isAfter(now)) {
-                    // 直接跳转，避免遍历恶意构造或跨越多年的积压。
+                    // 直接从当前时刻计算下一次，跳过其间全部错过的触发，避免遍历长时间积压
                     nextExecution = trigger.nextFireTime(now);
                 }
+                // 监听器属于用户代码，在状态锁之外派发
+                offerOccurrence(scheduledAt);
             }
         }
 
@@ -569,9 +526,8 @@ public final class LavaScheduler implements AutoCloseable {
                     return;
                 }
                 if (Duration.between(scheduledAt, now).compareTo(MISFIRE_GRACE) > 0) {
-                    // 保留当前逾期时刻，由统一解析逻辑应用 SKIP/FIRE_ONCE/CATCH_UP 并推进到未来时刻。
-                    // 该分支既处理协调线程停顿和时钟前跳，也处理安装或恢复时的 misfire。
-                    // 解析在状态锁外继续，因为过程中会调用监听器。
+                    // 协调线程停顿或时钟前跳导致逾期，交给统一的错过触发处理；
+                    // 处理过程会调用监听器，因此在状态锁外继续
                     misfired = true;
                 } else {
                     previousExecution = scheduledAt;
@@ -595,38 +551,31 @@ public final class LavaScheduler implements AutoCloseable {
         }
 
         private void offerOccurrence(Instant scheduledAt) {
-            boolean dispatch = false;
-            @Nullable TaskEventStatus immediateStatus = null;
-            @Nullable String reason = null;
-            ConcurrencyPolicy policy = options.concurrencyPolicy();
+            TaskEventStatus immediateStatus;
+            String reason;
             synchronized (lock) {
                 if (cancelled || closed.get()) {
                     immediateStatus = TaskEventStatus.REJECTED;
                     reason = "scheduler closed or task cancelled";
-                } else if (running < policy.maxConcurrency()) {
-                    running++;
-                    executionReserved();
-                    dispatch = true;
-                } else if (policy.kind() == ConcurrencyPolicy.Kind.SERIAL_SKIP) {
+                } else if (running > 0 && concurrencyPolicy == ConcurrencyPolicy.SKIP_IF_RUNNING) {
                     immediateStatus = TaskEventStatus.SKIPPED;
                     reason = "previous execution is still active";
-                } else if (pending.size() < policy.maxPending()) {
-                    pending.addLast(scheduledAt);
                 } else {
-                    immediateStatus = TaskEventStatus.REJECTED;
-                    reason = "task pending queue is full";
+                    // 全局并发上限由执行器的有界队列保证，超出时执行器拒绝并产生 REJECTED
+                    running++;
+                    executionReserved();
+                    immediateStatus = null;
+                    reason = null;
                 }
             }
-            if (dispatch) {
-                if (!dispatchReserved(scheduledAt)) {
-                    drainPending();
-                }
-            } else if (immediateStatus != null) {
+            if (immediateStatus == null) {
+                dispatchReserved(scheduledAt);
+            } else {
                 emitTerminal(immediateStatus, scheduledAt, null, reason);
             }
         }
 
-        private boolean dispatchReserved(Instant scheduledAt) {
+        private void dispatchReserved(Instant scheduledAt) {
             Execution execution = new Execution(scheduledAt);
             boolean rejected;
             synchronized (lock) {
@@ -636,27 +585,20 @@ public final class LavaScheduler implements AutoCloseable {
                 }
             }
             if (rejected) {
-                releaseUnstartedReservation(execution.state, false);
-                // 监听器属于用户代码，必须在任务状态锁之外调用。
-                emitTerminal(
-                        TaskEventStatus.REJECTED,
-                        scheduledAt,
-                        null,
+                releaseUnstartedReservation(execution.state);
+                // 监听器属于用户代码，必须在任务状态锁之外调用
+                emitTerminal(TaskEventStatus.REJECTED, scheduledAt, null,
                         "scheduler closed or task cancelled");
-                return false;
+                return;
             }
             try {
                 executor.execute(execution.future);
-                return true;
             } catch (RejectedExecutionException e) {
                 synchronized (lock) {
                     executions.remove(execution);
                 }
-                // 由迭代式排空循环决定是否继续尝试 pending occurrence，避免执行器持续饱和时
-                // 每次拒绝都增加一层 Java 调用栈。
-                releaseUnstartedReservation(execution.state, false);
+                releaseUnstartedReservation(execution.state);
                 emitTerminal(TaskEventStatus.REJECTED, scheduledAt, null, "execution executor rejected task");
-                return false;
             }
         }
 
@@ -694,70 +636,26 @@ public final class LavaScheduler implements AutoCloseable {
             }
         }
 
-        private void releaseUnstartedReservation(
-                AtomicInteger executionState, boolean drainAfterRelease) {
-            if (!executionState.compareAndSet(0, 2)) {
-                return;
+        /**
+         * 执行状态 0=未开始、1=运行中、2=已释放；CAS 保证每次预留只释放一次。
+         */
+        private void releaseUnstartedReservation(AtomicInteger executionState) {
+            if (executionState.compareAndSet(0, 2)) {
+                releaseReservationAccounting();
             }
-            releaseReservationAccounting(drainAfterRelease);
         }
 
         private void releaseStartedReservation(AtomicInteger executionState) {
-            if (!executionState.compareAndSet(1, 2)) {
-                return;
+            if (executionState.compareAndSet(1, 2)) {
+                releaseReservationAccounting();
             }
-            releaseReservationAccounting(true);
         }
 
-        private void releaseReservationAccounting(boolean drainAfterRelease) {
+        private void releaseReservationAccounting() {
             synchronized (lock) {
                 running--;
             }
             executionReleased();
-            if (drainAfterRelease) {
-                drainPending();
-            }
-        }
-
-        private void drainPending() {
-            ConcurrencyPolicy policy = options.concurrencyPolicy();
-            synchronized (lock) {
-                if (drainingPending) {
-                    return;
-                }
-                drainingPending = true;
-            }
-            boolean releasedDrainer = false;
-            try {
-                while (true) {
-                    Instant scheduledAt;
-                    synchronized (lock) {
-                        if (cancelled || closed.get()) {
-                            pending.clear();
-                            drainingPending = false;
-                            releasedDrainer = true;
-                            return;
-                        }
-                        if (running >= policy.maxConcurrency() || pending.isEmpty()) {
-                            // 在持有状态锁时清除标记。并发完成要么已在上方被观察到，要么可以成为
-                            // 下一个排空者，从而不会有 pending occurrence 遗留在交接窗口中。
-                            drainingPending = false;
-                            releasedDrainer = true;
-                            return;
-                        }
-                        scheduledAt = pending.removeFirst();
-                        running++;
-                        executionReserved();
-                    }
-                    dispatchReserved(scheduledAt);
-                }
-            } finally {
-                if (!releasedDrainer) {
-                    synchronized (lock) {
-                        drainingPending = false;
-                    }
-                }
-            }
         }
 
         /**
@@ -791,7 +689,7 @@ public final class LavaScheduler implements AutoCloseable {
                             executions.remove(Execution.this);
                         }
                         if (isCancelled()) {
-                            releaseUnstartedReservation(state, true);
+                            releaseUnstartedReservation(state);
                         }
                     }
                 };
@@ -818,7 +716,7 @@ public final class LavaScheduler implements AutoCloseable {
                     future.cancel(false);
                 } finally {
                     // 上面的状态转换会阻止 callable 启动；done() 看到状态 2 后不会再次释放预留计数。
-                    releaseReservationAccounting(false);
+                    releaseReservationAccounting();
                 }
                 return true;
             }

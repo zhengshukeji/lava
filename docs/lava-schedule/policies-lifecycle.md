@@ -1,5 +1,18 @@
 # 并发、错过触发与生命周期
 
+并发上限、关闭行为和任务事件都在 Builder 上集中配置：
+
+```java
+LavaScheduler scheduler = LavaScheduler.builder()
+        // 全局最多 64 个执行并发，队列最多 256 个排队
+        .executionBounds(64, 256)
+        // close() 等待活跃任务的超时
+        .shutdownTimeout(Duration.ofSeconds(20))
+        // 每次执行终态的回调
+        .listener(event -> metrics.record(event.status()))
+        .build();
+```
+
 ## 并发策略
 
 | 策略 | 行为 |

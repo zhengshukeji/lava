@@ -16,6 +16,7 @@
 
 package com.zhengshuyun.lava.schedule;
 
+import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
@@ -52,6 +53,19 @@ public final class ScheduledTask {
      */
     public void resume() {
         control.resume();
+    }
+
+    /**
+     * 原地替换触发器，并按新触发器重新计算下一次执行。
+     *
+     * <p>与先取消再重新注册不同，任务标识和运行状态保持不变：旧触发器下仍在进行的执行不受影响，
+     * 且继续参与并发策略判断，{@link ConcurrencyPolicy#SKIP_IF_RUNNING} 下不会与新触发器的执行重叠。
+     * 已暂停的任务保持暂停，恢复后按新触发器执行。
+     *
+     * @param trigger 新的触发器
+     */
+    public void reschedule(Trigger trigger) {
+        control.reschedule(ValidationUtils.requireNonNull(trigger, "trigger must not be null"));
     }
 
     /**

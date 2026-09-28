@@ -11,7 +11,19 @@
 
 ## 错过触发
 
-暂停后恢复、协调线程停顿或时钟前跳都可能让计划时刻被错过。错过的多次触发**合并为一次立即执行**，随后从当前时刻按触发器继续推进，积压再多也只执行一次。这与 Quartz 对 Cron 的默认处理（`FIRE_ONCE_NOW`）以及 `ScheduledThreadPoolExecutor` 迟到执行的行为一致；需要逐次补偿的场景应使用持久化调度系统。
+暂停后恢复、协调线程停顿、时钟前跳或首次时刻已过去，都可能让计划时刻被错过。处理方式由触发器的 `MisfirePolicy` 决定：
+
+| 策略 | 行为 |
+| --- | --- |
+| `MisfirePolicy.FIRE_ONCE_NOW` | 默认。错过的多次触发**合并为一次立即执行**，积压再多也只执行一次 |
+| `MisfirePolicy.SKIP` | 丢弃错过的触发，只产生一次 `SKIPPED` 事件；一次性触发器因此不再执行 |
+
+```java
+Trigger nightly = Trigger.cron("0 0 2 * * ?", ZoneId.of("Asia/Shanghai"))
+        .withMisfirePolicy(MisfirePolicy.SKIP);
+```
+
+两种策略之后都从当前时刻之后的下一个计划时刻继续推进，分别对应 Quartz 的 `FIRE_ONCE_NOW` 和 `DO_NOTHING`。需要逐次补偿的场景应使用持久化调度系统。
 
 ## 任务事件
 

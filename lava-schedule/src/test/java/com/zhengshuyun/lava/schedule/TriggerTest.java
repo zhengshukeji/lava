@@ -70,12 +70,39 @@ class TriggerTest {
     }
 
     @Test
+    void fixedDelayStartsAfterInitialDelayAndLeavesNextToCompletion() {
+        Instant now = Instant.parse("2026-08-17T00:00:00Z");
+        Trigger delayed = Trigger.fixedDelay(Duration.ofSeconds(2), Duration.ofSeconds(5));
+
+        assertEquals(now.plusSeconds(2), delayed.firstFireTime(now));
+        assertEquals(now.plusSeconds(5), Trigger.fixedDelay(Duration.ofSeconds(5)).firstFireTime(now));
+        assertNull(delayed.nextExecutionAfter(now));
+        assertEquals(now.plusSeconds(5), delayed.nextFixedDelayFireTime(now));
+    }
+
+    @Test
+    void misfirePolicyDefaultsToFireOnceNowAndCopiesOnChange() {
+        Trigger original = Trigger.cron("0 0 2 * * ?");
+        Trigger skipping = original.withMisfirePolicy(MisfirePolicy.SKIP);
+
+        assertEquals(MisfirePolicy.FIRE_ONCE_NOW, original.misfirePolicy());
+        assertEquals(MisfirePolicy.SKIP, skipping.misfirePolicy());
+        Instant after = Instant.parse("2026-08-17T00:00:00Z");
+        assertEquals(original.nextExecutionAfter(after), skipping.nextExecutionAfter(after));
+    }
+
+    @Test
     void invalidTriggerValuesFailImmediately() {
         assertThrows(IllegalArgumentException.class, () -> Trigger.cron("bad cron"));
         assertThrows(IllegalArgumentException.class, () -> Trigger.cron(" "));
         assertThrows(IllegalArgumentException.class, () -> Trigger.after(Duration.ofSeconds(-1)));
         assertThrows(IllegalArgumentException.class, () -> Trigger.fixedRate(Duration.ZERO));
         assertThrows(IllegalArgumentException.class, () -> Trigger.at(null));
+        assertThrows(IllegalArgumentException.class, () -> Trigger.fixedDelay(Duration.ZERO));
+        assertThrows(IllegalArgumentException.class,
+                () -> Trigger.fixedDelay(Duration.ofSeconds(-1), Duration.ofSeconds(1)));
+        assertThrows(IllegalArgumentException.class,
+                () -> Trigger.after(Duration.ZERO).withMisfirePolicy(null));
     }
 
     @Test

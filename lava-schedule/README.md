@@ -30,13 +30,15 @@ try (LavaScheduler scheduler = LavaScheduler.builder()
 }
 ```
 
-没有显式 ID 时，调度器生成 UUIDv7。`ScheduledTask` 可用于 `pause`、`resume`、`triggerNow`、查询前后执行时间和取消。
+没有显式 ID 时，调度器生成 UUIDv7。`ScheduledTask` 可用于 `pause`、`resume`、`triggerNow`、`reschedule`、查询前后执行时间和取消；
+`scheduler.tasks()` 返回当前全部任务。
 
 ## Trigger
 
 - `Trigger.at(Instant)`：绝对时间执行一次。
 - `Trigger.after(Duration)`：相对延迟后执行一次。
 - `Trigger.fixedRate(...)`：固定 rate，以预定时间而非任务完成时间推进。
+- `Trigger.fixedDelay(...)`：固定 delay，每次执行结束后再等待一个延迟。
 - `Trigger.cron(expression)`：Cron，默认 UTC。
 - `Trigger.cron(expression, zoneId)`：显式时区 Cron，构造时立即校验表达式。
 
@@ -47,7 +49,9 @@ try (LavaScheduler scheduler = LavaScheduler.builder()
 默认 `ConcurrencyPolicy.SKIP_IF_RUNNING`：上一次仍在运行时跳过本次并产生 `SKIPPED` 事件；`PARALLEL` 允许同一任务并行。
 全局并发由 `executionBounds` 约束，执行器满载时产生 `REJECTED` 事件，不创建无界虚拟线程。
 
-错过的多次触发合并为一次立即执行，随后从当前时刻继续推进，与 Quartz 对 Cron 的默认 misfire 处理一致。
+错过的多次触发默认合并为一次立即执行（`MisfirePolicy.FIRE_ONCE_NOW`），随后从当前时刻继续推进；
+`trigger.withMisfirePolicy(MisfirePolicy.SKIP)` 则丢弃错过的触发并产生一次 `SKIPPED` 事件。两者对应 Quartz 的
+`FIRE_ONCE_NOW` 和 `DO_NOTHING`。
 
 `TaskEventListener` 接收 `SUCCESS`、`FAILURE`、`SKIPPED`、`REJECTED` 终态事件和时间戳。监听器异常会被隔离，不中断调度器。
 

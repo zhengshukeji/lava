@@ -43,10 +43,25 @@ public final class Trigger {
 
     private final FirstFireTime firstFireTime;
     private final NextFireTime nextFireTime;
+    /**
+     * 固定延迟；非 null 时下一次触发取决于执行完成时刻，由调度器在完成后计算，{@link #nextFireTime} 恒为 null。
+     */
+    private final @Nullable Duration fixedDelay;
+    private final MisfirePolicy misfirePolicy;
 
     private Trigger(FirstFireTime firstFireTime, NextFireTime nextFireTime) {
+        this(firstFireTime, nextFireTime, null, MisfirePolicy.FIRE_ONCE_NOW);
+    }
+
+    private Trigger(
+            FirstFireTime firstFireTime,
+            NextFireTime nextFireTime,
+            @Nullable Duration fixedDelay,
+            MisfirePolicy misfirePolicy) {
         this.firstFireTime = firstFireTime;
         this.nextFireTime = nextFireTime;
+        this.fixedDelay = fixedDelay;
+        this.misfirePolicy = misfirePolicy;
     }
 
     /**
@@ -114,6 +129,37 @@ public final class Trigger {
     }
 
     /**
+     * 创建固定延迟触发器；首次执行发生在一个延迟之后，此后每次执行结束再等待一个延迟。
+     *
+     * @param delay 上一次执行结束到下一次执行开始的间隔
+     * @return 固定延迟触发器
+     */
+    public static Trigger fixedDelay(Duration delay) {
+        return fixedDelay(delay, delay);
+    }
+
+    /**
+     * 创建具有相对初始延迟的固定延迟触发器。
+     *
+     * <p>下一次执行从上一次执行结束（含被跳过或被执行器拒绝）时开始计时，因此由触发器驱动的执行彼此不重叠；
+     * 只有 {@link ScheduledTask#triggerNow()} 可能在 {@link ConcurrencyPolicy#PARALLEL} 下与其并行，
+     * 且不会改变后续节奏。执行进行中时 {@link ScheduledTask#nextExecution()} 为 null。
+     *
+     * @param initialDelay 首次执行相对调度时钟的延迟；允许为零
+     * @param delay        上一次执行结束到下一次执行开始的间隔
+     * @return 固定延迟触发器
+     */
+    public static Trigger fixedDelay(Duration initialDelay, Duration delay) {
+        requirePositiveOrZero(initialDelay, "initialDelay");
+        requirePositive(delay, "delay");
+        return new Trigger(
+                now -> safePlus(now, initialDelay),
+                ignored -> null,
+                delay,
+                MisfirePolicy.FIRE_ONCE_NOW);
+    }
+
+    /**
      * 创建 UTC Cron 触发器。
      *
      * @param expression Quartz Cron 表达式
@@ -144,6 +190,32 @@ public final class Trigger {
         return new Trigger(calculator::after, calculator);
     }
 
+    /**
+     * 返回使用指定错过触发策略的新触发器，当前触发器不变。
+     *
+     * @param misfirePolicy 计划时刻被错过时的处理方式
+     * @return 新的触发器
+     */
+    public Trigger withMisfirePolicy(MisfirePolicy misfirePolicy) {
+        ValidationUtils.requireNonNull(misfirePolicy, "misfirePolicy must not be null");
+        return new Trigger(firstFireTime, nextFireTime, fixedDelay, misfirePolicy);
+    }
+
+    MisfirePolicy misfirePolicy() {
+        return misfirePolicy;
+    }
+
+    boolean isFixedDelay() {
+        return fixedDelay != null;
+    }
+
+    /**
+     * 固定延迟触发器在一次执行结束后的下一次触发时刻。
+     */
+    Instant nextFixedDelayFireTime(Instant completedAt) {
+        return safePlus(completedAt, ValidationUtils.requireNonNull(fixedDelay, "not a fixed-delay trigger"));
+    }
+
     @Nullable Instant firstFireTime(Instant now) {
         return firstFireTime.from(now);
     }
@@ -154,6 +226,8 @@ public final class Trigger {
 
     /**
      * 返回严格晚于指定时刻的下一次执行；不存在时返回空。
+     *
+     * <p>固定延迟触发器的下一次执行取决于执行完成时刻，无法仅凭时刻推算，始终返回 null。
      *
      * @param afterExclusive 查询起点，不包含该时刻
      * @return 下一次执行时刻；不存在时为 {@code null}

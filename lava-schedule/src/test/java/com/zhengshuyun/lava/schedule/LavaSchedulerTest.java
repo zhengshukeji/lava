@@ -23,9 +23,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -307,6 +309,124 @@ class LavaSchedulerTest {
     }
 
     @Test
+    void fixedDelayWaitsForCompletionBeforeNextRun() throws Exception {
+        Duration delay = Duration.ofMillis(50);
+        List<TaskEvent> successes = new CopyOnWriteArrayList<>();
+        CountDownLatch ranThreeTimes = new CountDownLatch(3);
+        try (LavaScheduler scheduler = LavaScheduler.builder().listener(event -> {
+            if (event.status() == TaskEventStatus.SUCCESS) {
+                successes.add(event);
+                ranThreeTimes.countDown();
+            }
+        }).build()) {
+            // 任务耗时大于延迟：固定频率会紧接着触发，固定延迟必须在完成后再等满一个延迟
+            scheduler.schedule("fixed-delay", () -> sleepUnchecked(Duration.ofMillis(80)),
+                    Trigger.fixedDelay(Duration.ZERO, delay));
+
+            assertTrue(ranThreeTimes.await(2, TimeUnit.SECONDS));
+            for (int i = 1; i < 3; i++) {
+                Duration gap = Duration.between(successes.get(i - 1).completedAt(), successes.get(i).startedAt());
+                assertTrue(gap.compareTo(delay) >= 0, "两次执行之间的间隔不足一个延迟: " + gap);
+            }
+        }
+    }
+
+    @Test
+    void skipMisfirePolicyDropsMissedOccurrences() throws Exception {
+        Instant now = Instant.parse("2026-08-17T00:00:00Z");
+        AtomicInteger executions = new AtomicInteger();
+        List<TaskEvent> events = new CopyOnWriteArrayList<>();
+        try (LavaScheduler scheduler = LavaScheduler.builder()
+                .clock(Clock.fixed(now, ZoneOffset.UTC))
+                .listener(events::add)
+                .build()) {
+            Instant first = now.minusMillis(2_500);
+            ScheduledTask rate = scheduler.schedule("skip-rate", executions::incrementAndGet,
+                    Trigger.fixedRate(first, Duration.ofSeconds(1)).withMisfirePolicy(MisfirePolicy.SKIP));
+            ScheduledTask once = scheduler.schedule("skip-once", executions::incrementAndGet,
+                    Trigger.at(now.minusSeconds(1)).withMisfirePolicy(MisfirePolicy.SKIP));
+
+            assertTrue(awaitCount(events, TaskEventStatus.SKIPPED, 2));
+            Thread.sleep(50);
+            assertEquals(0, executions.get());
+            // 跳过后仍保持固定频率相位；一次性触发器被跳过后不再执行
+            assertEquals(now.plusMillis(500), rate.nextExecution());
+            assertNull(rate.previousExecution());
+            assertNull(once.nextExecution());
+        }
+    }
+
+    @Test
+    void rescheduleKeepsRunningExecutionInConcurrencyCheck() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger executions = new AtomicInteger();
+        List<TaskEvent> events = new CopyOnWriteArrayList<>();
+        try (LavaScheduler scheduler = LavaScheduler.builder().listener(events::add).build()) {
+            ScheduledTask task = scheduler.schedule("reschedule", () -> {
+                executions.incrementAndGet();
+                started.countDown();
+                awaitUnchecked(release);
+            }, Trigger.after(Duration.ofHours(1)));
+            task.triggerNow();
+            assertTrue(started.await(2, TimeUnit.SECONDS));
+
+            // 旧执行仍在运行：新触发器的立即触发必须被跳过，而不是与其重叠
+            task.reschedule(Trigger.after(Duration.ZERO));
+            assertTrue(awaitStatus(events, TaskEventStatus.SKIPPED));
+            assertEquals(1, executions.get());
+
+            Instant future = Instant.now().plus(Duration.ofHours(2));
+            task.reschedule(Trigger.at(future));
+            assertEquals(future, task.nextExecution());
+            release.countDown();
+            assertTrue(awaitStatus(events, TaskEventStatus.SUCCESS));
+        }
+    }
+
+    @Test
+    void rescheduleStopsTheOldFixedDelayChain() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger executions = new AtomicInteger();
+        List<TaskEvent> events = new CopyOnWriteArrayList<>();
+        try (LavaScheduler scheduler = LavaScheduler.builder().listener(events::add).build()) {
+            ScheduledTask task = scheduler.schedule("chain", () -> {
+                executions.incrementAndGet();
+                started.countDown();
+                awaitUnchecked(release);
+            }, Trigger.fixedDelay(Duration.ZERO, Duration.ofMillis(20)));
+            assertTrue(started.await(2, TimeUnit.SECONDS));
+            // 固定延迟执行进行中，下一次时刻要等完成后才知道
+            assertNull(task.nextExecution());
+
+            task.reschedule(Trigger.after(Duration.ofHours(1)));
+            Instant expected = task.nextExecution();
+            release.countDown();
+            assertTrue(awaitStatus(events, TaskEventStatus.SUCCESS));
+            Thread.sleep(100);
+
+            assertEquals(1, executions.get());
+            assertEquals(expected, task.nextExecution());
+        }
+    }
+
+    @Test
+    void tasksListsOnlyActiveTasks() {
+        try (LavaScheduler scheduler = LavaScheduler.create()) {
+            scheduler.schedule("a", () -> {
+            }, Trigger.after(Duration.ofHours(1)));
+            scheduler.schedule("b", () -> {
+            }, Trigger.after(Duration.ofHours(1)));
+
+            assertEquals(Set.of("a", "b"),
+                    scheduler.tasks().stream().map(ScheduledTask::id).collect(Collectors.toSet()));
+            scheduler.cancel("a");
+            assertEquals(List.of("b"), scheduler.tasks().stream().map(ScheduledTask::id).toList());
+        }
+    }
+
+    @Test
     void pauseResumeAndCancelAreInstanceScoped() {
         try (LavaScheduler first = LavaScheduler.create(); LavaScheduler second = LavaScheduler.create()) {
             ScheduledTask firstTask = first.schedule("same-id", () -> {
@@ -490,6 +610,18 @@ class LavaSchedulerTest {
         return false;
     }
 
+    private static boolean awaitCount(List<TaskEvent> events, TaskEventStatus status, long expected)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (System.nanoTime() < deadline) {
+            if (events.stream().filter(event -> event.status() == status).count() == expected) {
+                return true;
+            }
+            Thread.sleep(5);
+        }
+        return false;
+    }
+
     private static boolean awaitCount(AtomicInteger value, int expected) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
         while (System.nanoTime() < deadline) {
@@ -510,6 +642,14 @@ class LavaSchedulerTest {
             Thread.sleep(5);
         }
         return false;
+    }
+
+    private static void sleepUnchecked(Duration duration) {
+        try {
+            Thread.sleep(duration);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static void awaitUnchecked(CountDownLatch latch) {

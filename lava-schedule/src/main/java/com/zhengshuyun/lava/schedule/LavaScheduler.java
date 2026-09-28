@@ -47,6 +47,10 @@ public final class LavaScheduler implements AutoCloseable {
      * 合并错过触发时，从错过时刻逐个推进的最大步数；超过后直接从当前时刻计算，避免遍历长时间积压。
      */
     private static final int MAX_MISFIRE_STEPS = 1_000;
+    /**
+     * 不属于固定延迟链的执行（非 fixedDelay 触发或 triggerNow），结束后不续排下一次。
+     */
+    private static final long NO_CHAIN = -1L;
 
     private final Clock clock;
     private final ScheduledThreadPoolExecutor coordinator;
@@ -129,8 +133,8 @@ public final class LavaScheduler implements AutoCloseable {
     /**
      * 使用指定标识和并发策略注册任务。
      *
-     * <p>错过触发（暂停后恢复、协调线程停顿或时钟前跳）时，错过的多次触发合并为一次立即执行，
-     * 随后从当前时刻继续按触发器推进，与 Quartz 对 Cron 的默认 misfire 处理一致。
+     * <p>错过触发（暂停后恢复、协调线程停顿或时钟前跳）时按触发器的 {@link MisfirePolicy} 处理，
+     * 默认把错过的多次触发合并为一次立即执行，随后从当前时刻继续按触发器推进。
      *
      * @param id                全局唯一且非空白的任务标识
      * @param task              待执行的任务
@@ -182,6 +186,15 @@ public final class LavaScheduler implements AutoCloseable {
     public @Nullable ScheduledTask getTask(String id) {
         TaskControl control = tasks.get(requireNotBlank(id, "id"));
         return control == null ? null : new ScheduledTask(control);
+    }
+
+    /**
+     * 返回当前仍由调度器管理的全部任务句柄快照，顺序不固定。
+     *
+     * @return 不可变的任务句柄列表
+     */
+    public List<ScheduledTask> tasks() {
+        return tasks.values().stream().map(ScheduledTask::new).toList();
     }
 
     /**
@@ -346,11 +359,19 @@ public final class LavaScheduler implements AutoCloseable {
 
         private final String id;
         private final Runnable task;
-        private final Trigger trigger;
         private final ConcurrencyPolicy concurrencyPolicy;
         private final Object lock = new Object();
         private final Set<Execution> executions = new HashSet<>();
 
+        private Trigger trigger;
+        /**
+         * 每次 reschedule 递增；旧触发器遗留的固定延迟链在执行结束时据此识别并停止续排。
+         */
+        private long epoch;
+        /**
+         * 每次安排或撤销唤醒时递增；已出队但尚未拿到锁的旧唤醒据此识别自己已失效。
+         */
+        private long wakeupSeq;
         private boolean paused;
         private boolean cancelled;
         private int running;
@@ -370,8 +391,9 @@ public final class LavaScheduler implements AutoCloseable {
         }
 
         void start() {
-            Instant first = trigger.firstFireTime(clock.instant());
+            Instant first;
             synchronized (lock) {
+                first = trigger.firstFireTime(clock.instant());
                 nextExecution = first;
             }
             if (first == null) {
@@ -389,10 +411,7 @@ public final class LavaScheduler implements AutoCloseable {
             synchronized (lock) {
                 requireActive();
                 paused = true;
-                if (wakeup != null) {
-                    wakeup.cancel(false);
-                    wakeup = null;
-                }
+                cancelWakeupLocked();
             }
         }
 
@@ -404,6 +423,23 @@ public final class LavaScheduler implements AutoCloseable {
                 }
                 paused = false;
             }
+            resolveMisfiresAndSchedule();
+        }
+
+        /**
+         * 原地替换触发器。任务身份和运行计数保持不变，因此旧触发器下仍在进行的执行
+         * 会继续参与并发策略判断，不会与新触发器的执行重叠（SKIP_IF_RUNNING 时）。
+         */
+        void reschedule(Trigger newTrigger) {
+            Instant first = newTrigger.firstFireTime(clock.instant());
+            synchronized (lock) {
+                requireActive();
+                trigger = newTrigger;
+                epoch++;
+                cancelWakeupLocked();
+                nextExecution = first;
+            }
+            // 与 resume 相同：首次时刻已错过时按新触发器的错过策略处理；已暂停时等 resume 再安排
             resolveMisfiresAndSchedule();
         }
 
@@ -427,10 +463,7 @@ public final class LavaScheduler implements AutoCloseable {
                     return false;
                 }
                 cancelled = true;
-                if (wakeup != null) {
-                    wakeup.cancel(false);
-                    wakeup = null;
-                }
+                cancelWakeupLocked();
             }
             // 始终取消已提交但尚未开始的执行；只有调用者明确要求时才打断运行中的执行。
             cancelExecutions(mayInterruptIfRunning, null);
@@ -458,7 +491,7 @@ public final class LavaScheduler implements AutoCloseable {
             synchronized (lock) {
                 requireActive();
             }
-            offerOccurrence(clock.instant());
+            offerOccurrence(clock.instant(), NO_CHAIN);
         }
 
         @Nullable Instant nextExecution() {
@@ -474,12 +507,14 @@ public final class LavaScheduler implements AutoCloseable {
         }
 
         /**
-         * 安排下一次唤醒；若计划时刻已错过，则把错过的触发合并为一次立即执行，
+         * 安排下一次唤醒；若计划时刻已错过，则按错过策略把错过的触发合并为一次立即执行或一次跳过，
          * 再推进到下一个未来触发时刻。
          */
         private void resolveMisfiresAndSchedule() {
             while (true) {
                 Instant scheduledAt;
+                boolean fire;
+                long chainEpoch;
                 Instant now = clock.instant();
                 synchronized (lock) {
                     if (cancelled || paused || nextExecution == null) {
@@ -491,11 +526,24 @@ public final class LavaScheduler implements AutoCloseable {
                         scheduleWakeupLocked(scheduledAt, now);
                         return;
                     }
-                    previousExecution = scheduledAt;
-                    nextExecution = nextFireTimeAfterMisfire(scheduledAt, now);
+                    fire = trigger.misfirePolicy() == MisfirePolicy.FIRE_ONCE_NOW;
+                    if (trigger.isFixedDelay()) {
+                        // 固定延迟的下一次由完成时刻决定：补跑时等本次结束后续排，跳过时从当前时刻起算
+                        nextExecution = fire ? null : trigger.nextFixedDelayFireTime(now);
+                    } else {
+                        nextExecution = nextFireTimeAfterMisfire(scheduledAt, now);
+                    }
+                    if (fire) {
+                        previousExecution = scheduledAt;
+                    }
+                    chainEpoch = fire && trigger.isFixedDelay() ? epoch : NO_CHAIN;
                 }
                 // 监听器属于用户代码，在状态锁之外派发
-                offerOccurrence(scheduledAt);
+                if (fire) {
+                    offerOccurrence(scheduledAt, chainEpoch);
+                } else {
+                    emitTerminal(TaskEventStatus.SKIPPED, scheduledAt, null, "misfired occurrence skipped by policy");
+                }
             }
         }
 
@@ -517,7 +565,18 @@ public final class LavaScheduler implements AutoCloseable {
             return next;
         }
 
+        private void cancelWakeupLocked() {
+            wakeupSeq++;
+            if (wakeup != null) {
+                wakeup.cancel(false);
+                wakeup = null;
+            }
+        }
+
         private void scheduleWakeupLocked(Instant scheduledAt, Instant now) {
+            // 同一时刻只保留一个有效唤醒，避免并发的 resume/reschedule 各自安排一次导致重复触发
+            cancelWakeupLocked();
+            long seq = wakeupSeq;
             long delayNanos;
             try {
                 delayNanos = Math.max(0L, Duration.between(now, scheduledAt).toNanos());
@@ -526,7 +585,7 @@ public final class LavaScheduler implements AutoCloseable {
             }
             try {
                 wakeup = coordinator.schedule(
-                        () -> onDue(scheduledAt), delayNanos, TimeUnit.NANOSECONDS);
+                        () -> onDue(scheduledAt, seq), delayNanos, TimeUnit.NANOSECONDS);
             } catch (RejectedExecutionException e) {
                 if (!closed.get()) {
                     throw new ScheduleException("Coordinator rejected task: " + id, e);
@@ -534,10 +593,15 @@ public final class LavaScheduler implements AutoCloseable {
             }
         }
 
-        private void onDue(Instant scheduledAt) {
+        private void onDue(Instant scheduledAt, long seq) {
             Instant now = clock.instant();
             boolean misfired;
+            long chainEpoch = NO_CHAIN;
             synchronized (lock) {
+                if (seq != wakeupSeq) {
+                    // 已被更新的唤醒取代（pause/resume/reschedule），此处的 wakeup 字段属于新唤醒
+                    return;
+                }
                 wakeup = null;
                 if (cancelled || paused || !Objects.equals(nextExecution, scheduledAt)) {
                     return;
@@ -553,7 +617,11 @@ public final class LavaScheduler implements AutoCloseable {
                     misfired = true;
                 } else {
                     previousExecution = scheduledAt;
+                    // 固定延迟触发器此处得到 null，下一次在本次执行结束后由 continueFixedDelay 续排
                     nextExecution = trigger.nextFireTime(scheduledAt);
+                    if (trigger.isFixedDelay()) {
+                        chainEpoch = epoch;
+                    }
                     misfired = false;
                 }
             }
@@ -561,7 +629,7 @@ public final class LavaScheduler implements AutoCloseable {
                 resolveMisfiresAndSchedule();
                 return;
             }
-            offerOccurrence(scheduledAt);
+            offerOccurrence(scheduledAt, chainEpoch);
             Instant next;
             synchronized (lock) {
                 next = nextExecution;
@@ -572,7 +640,28 @@ public final class LavaScheduler implements AutoCloseable {
             }
         }
 
-        private void offerOccurrence(Instant scheduledAt) {
+        /**
+         * 固定延迟链上的一次执行结束（含被跳过、被执行器拒绝）后，从当前时刻起算下一次触发。
+         * 任务已取消、调度器已关闭或触发器已被替换时不再续排。
+         */
+        private void continueFixedDelay(long chainEpoch) {
+            if (chainEpoch == NO_CHAIN) {
+                return;
+            }
+            synchronized (lock) {
+                if (cancelled || closed.get() || chainEpoch != epoch) {
+                    return;
+                }
+                Instant now = clock.instant();
+                nextExecution = trigger.nextFixedDelayFireTime(now);
+                // 暂停中只记录下一次时刻，由 resume 按错过策略处理
+                if (!paused) {
+                    scheduleWakeupLocked(nextExecution, now);
+                }
+            }
+        }
+
+        private void offerOccurrence(Instant scheduledAt, long chainEpoch) {
             TaskEventStatus immediateStatus;
             String reason;
             synchronized (lock) {
@@ -591,14 +680,17 @@ public final class LavaScheduler implements AutoCloseable {
                 }
             }
             if (immediateStatus == null) {
-                dispatchReserved(scheduledAt);
+                dispatchReserved(scheduledAt, chainEpoch);
             } else {
+                if (immediateStatus == TaskEventStatus.SKIPPED) {
+                    continueFixedDelay(chainEpoch);
+                }
                 emitTerminal(immediateStatus, scheduledAt, null, reason);
             }
         }
 
-        private void dispatchReserved(Instant scheduledAt) {
-            Execution execution = new Execution(scheduledAt);
+        private void dispatchReserved(Instant scheduledAt, long chainEpoch) {
+            Execution execution = new Execution(scheduledAt, chainEpoch);
             boolean rejected;
             synchronized (lock) {
                 rejected = cancelled || closed.get();
@@ -620,6 +712,8 @@ public final class LavaScheduler implements AutoCloseable {
                     executions.remove(execution);
                 }
                 releaseUnstartedReservation(execution.state);
+                // 执行器暂时满载不应让固定延迟链就此中断
+                continueFixedDelay(chainEpoch);
                 emitTerminal(TaskEventStatus.REJECTED, scheduledAt, null, "execution executor rejected task");
             }
         }
@@ -689,7 +783,7 @@ public final class LavaScheduler implements AutoCloseable {
             private final FutureTask<Void> future;
             private volatile @Nullable Thread runner;
 
-            Execution(Instant scheduledAt) {
+            Execution(Instant scheduledAt, long chainEpoch) {
                 future = new FutureTask<>(() -> {
                     if (!state.compareAndSet(0, 1)) {
                         return null;
@@ -701,7 +795,9 @@ public final class LavaScheduler implements AutoCloseable {
                     } finally {
                         exitExecution();
                         runner = null;
+                        // 先释放运行计数再续排，下一次触发的并发判断不会把本次执行算作仍在运行
                         releaseStartedReservation(state);
+                        continueFixedDelay(chainEpoch);
                     }
                     return null;
                 }) {

@@ -3,13 +3,15 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 
-package com.zhengshuyun.lava.pay.alipay.pagepay;
+package com.zhengshuyun.lava.pay.alipay.wappay;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayValidationUtils;
 import com.zhengshuyun.lava.pay.alipay.order.GoodsDetail;
 import org.jspecify.annotations.Nullable;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -19,12 +21,12 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 电脑网站支付单笔订单参数。
+ * 手机网站支付单笔订单参数。
  *
- * <p>应用 ID、异步通知地址、同步返回地址、产品码和页面集成类型由客户端统一注入。
+ * <p>应用 ID、异步通知地址、同步返回地址和产品码由客户端统一注入。
  * 金额单位为分，构建完成后对象不可变。</p>
  */
-public final class PagePayRequest {
+public final class WapPayRequest {
     /** 商户订单号，在当前商户范围内保持唯一。 */
     private final String outTradeNo;
     /** 订单总金额，单位为分，必须大于零。 */
@@ -37,10 +39,8 @@ public final class PagePayRequest {
     private final @Nullable LocalDateTime timeExpire;
     /** 可选相对支付有效期，必须为 1 分钟至 15 天的整分钟。 */
     private final @Nullable Duration timeout;
-    /** 可选二维码展示模式，必须属于 {@link PagePayQrMode} 定义的范围。 */
-    private final @Nullable String qrPayMode;
-    /** 自定义二维码宽度，范围为 1 至 9999，仅自定义宽度模式有效。 */
-    private final @Nullable Integer qrcodeWidth;
+    /** 可选用户付款中途退出时返回商户网站的地址。 */
+    private final @Nullable URI quitUrl;
     /** 不可变商品明细列表；没有商品明细时为空列表。 */
     private final List<GoodsDetail> goodsDetail;
     /** 仅允许使用的支付渠道集合，与禁用渠道集合互斥。 */
@@ -57,10 +57,10 @@ public final class PagePayRequest {
     /**
      * 使用构建期参数创建并校验不可变页面支付请求。
      *
-     * @param builder 已收集订单、有效期、页面展示、商品和支付渠道参数的构建器
+     * @param builder 已收集订单、有效期、退出地址、商品和支付渠道参数的构建器
      * @throws IllegalArgumentException 必填字段缺失、字段越界，或有效期与支付渠道等互斥配置冲突
      */
-    private PagePayRequest(Builder builder) {
+    private WapPayRequest(Builder builder) {
         outTradeNo = AlipayValidationUtils.requireOutTradeNo(builder.outTradeNo);
         totalAmount = AlipayValidationUtils.requirePositiveAmount(
                 ValidationUtils.requireNonNull(builder.totalAmount, "totalAmount is required"), "totalAmount");
@@ -76,20 +76,7 @@ public final class PagePayRequest {
                     "timeout must be a positive number of whole minutes");
         }
 
-        qrPayMode = builder.qrPayMode == null ? null
-                : ValidationUtils.requireNotBlank(builder.qrPayMode, "qrPayMode must not be blank");
-        qrcodeWidth = builder.qrcodeWidth;
-        if (PagePayQrMode.CUSTOM_WIDTH.equals(qrPayMode)) {
-            ValidationUtils.requireNonNull(qrcodeWidth,
-                    "qrcodeWidth is required when qrPayMode is CUSTOM_WIDTH");
-        } else {
-            ValidationUtils.requireTrue(qrcodeWidth == null,
-                    "qrcodeWidth is only valid when qrPayMode is CUSTOM_WIDTH");
-        }
-        if (qrcodeWidth != null) {
-            ValidationUtils.requireTrue(qrcodeWidth > 0, "qrcodeWidth must be positive");
-        }
-
+        quitUrl = builder.quitUrl;
         goodsDetail = List.copyOf(builder.goodsDetail);
         enablePayChannels = Collections.unmodifiableSet(
                 new LinkedHashSet<>(builder.enablePayChannels));
@@ -103,7 +90,7 @@ public final class PagePayRequest {
     }
 
     /**
-     * 创建电脑网站支付请求构建器。
+     * 创建手机网站支付请求构建器。
      *
      * @return 新构建器
      */
@@ -166,21 +153,12 @@ public final class PagePayRequest {
     }
 
     /**
-     * 获取二维码展示模式。
+     * 获取用户中途退出时返回商户网站的地址。
      *
-     * @return 二维码模式；没有时为 {@code null}
+     * @return 退出返回地址；没有时为 {@code null}
      */
-    public @Nullable String qrPayMode() {
-        return qrPayMode;
-    }
-
-    /**
-     * 获取自定义二维码宽度。
-     *
-     * @return 自定义二维码宽度；没有时为 {@code null}
-     */
-    public @Nullable Integer qrcodeWidth() {
-        return qrcodeWidth;
+    public @Nullable URI quitUrl() {
+        return quitUrl;
     }
 
     /**
@@ -238,7 +216,7 @@ public final class PagePayRequest {
     }
 
     /**
-     * 电脑网站支付请求 fluent 构建器。
+     * 手机网站支付请求 fluent 构建器。
      */
     public static final class Builder {
         /** 构建期商户订单号；构建前必须配置。 */
@@ -253,10 +231,8 @@ public final class PagePayRequest {
         private @Nullable LocalDateTime timeExpire;
         /** 构建期可选相对有效期，与绝对过期时间互斥。 */
         private @Nullable Duration timeout;
-        /** 构建期可选二维码展示模式。 */
-        private @Nullable String qrPayMode;
-        /** 构建期可选二维码宽度，仅自定义宽度模式有效。 */
-        private @Nullable Integer qrcodeWidth;
+        /** 构建期可选退出返回地址。 */
+        private @Nullable URI quitUrl;
         /** 按添加顺序保存的构建期商品明细。 */
         private final List<GoodsDetail> goodsDetail = new ArrayList<>();
         /** 构建期允许渠道集合，与禁用渠道集合互斥。 */
@@ -341,25 +317,30 @@ public final class PagePayRequest {
         }
 
         /**
-         * 配置二维码展示模式。
+         * 配置用户付款中途退出时返回商户网站的地址。
          *
-         * @param value {@link PagePayQrMode} 中的二维码模式常量
+         * @param value 退出返回地址
          * @return 当前构建器
          */
-        public Builder qrPayMode(String value) {
-            qrPayMode = value;
+        public Builder quitUrl(URI value) {
+            quitUrl = ValidationUtils.requireNonNull(value, "quitUrl must not be null");
             return this;
         }
 
         /**
-         * 配置自定义二维码宽度。
+         * 使用字符串配置用户付款中途退出时返回商户网站的地址。
          *
-         * @param value 自定义二维码宽度
+         * @param value 退出返回地址
          * @return 当前构建器
+         * @throws IllegalArgumentException 地址为空白或语法无效
          */
-        public Builder qrcodeWidth(int value) {
-            qrcodeWidth = value;
-            return this;
+        public Builder quitUrl(String value) {
+            ValidationUtils.requireNotBlank(value, "quitUrl must not be blank");
+            try {
+                return quitUrl(new URI(value));
+            } catch (URISyntaxException exception) {
+                throw new IllegalArgumentException("quitUrl is not a valid URI", exception);
+            }
         }
 
         /**
@@ -433,8 +414,8 @@ public final class PagePayRequest {
          *
          * @return 不可变支付请求
          */
-        public PagePayRequest build() {
-            return new PagePayRequest(this);
+        public WapPayRequest build() {
+            return new WapPayRequest(this);
         }
 
         /**

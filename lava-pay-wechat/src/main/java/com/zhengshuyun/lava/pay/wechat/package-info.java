@@ -15,7 +15,7 @@
  */
 
 /**
- * 微信支付 APIv3 普通商户协议适配，包括 Native 支付、交易、退款、账单和通知处理。
+ * 微信支付 APIv3 普通商户协议适配，包括 Native、JSAPI、H5 支付、交易、退款、账单和通知处理。
  */
 @NullMarked
 package com.zhengshuyun.lava.pay.wechat;

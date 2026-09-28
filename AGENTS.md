@@ -19,6 +19,7 @@
 
 - `lava-pay-wechat` 当前按境内 APIv3 普通商户模式实现，验签使用微信支付公钥，不使用平台证书模式。
 - 支付产品共用商户级签名、验签、通知解密、交易、退款和账单能力；新增 JSAPI、小程序或 APP 支付时复用现有根客户端与应用上下文，不复制协议实现。
+- Native、JSAPI、H5 下单共用 `prepay` 包的 `PrepayRequest`、`PrepayDetail`、`PrepaySceneInfo`，请求载荷统一由 `internal/WechatPayPrepayUtils` 组装；新增下单方式沿用该模型，不再按产品复制订单模型。
 
 ## 简道云接入
 

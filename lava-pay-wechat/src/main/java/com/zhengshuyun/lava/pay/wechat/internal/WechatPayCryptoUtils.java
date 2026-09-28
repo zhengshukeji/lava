@@ -31,6 +31,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.time.Clock;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
@@ -113,6 +114,23 @@ public final class WechatPayCryptoUtils {
                 + ",signature=\"" + signature + "\""
                 + ",timestamp=\"" + timestamp + "\""
                 + ",serial_no=\"" + merchantSerialNo + "\"";
+    }
+
+    /**
+     * 使用商户私钥对按行拼接的原文签名，用于 JSAPI 调起支付等前端签名场景。
+     *
+     * <p>签名原文为每个字段各占一行、每行以 {@code \n} 结尾，与微信支付官方规则一致。</p>
+     *
+     * @param privateKey 商户 API 证书对应的 RSA 私钥
+     * @param lines      按官方顺序排列的签名字段，至少一行
+     * @return Base64 编码的 RSA-SHA256 签名
+     */
+    public static String signLines(PrivateKey privateKey, String... lines) {
+        // signatureMessage 会在最后一段正文后补 \n，最后一个字段作为正文传入即可得到逐行结尾的原文
+        String last = lines[lines.length - 1];
+        String[] leading = Arrays.copyOf(lines, lines.length - 1);
+        byte[] message = signatureMessage(last.getBytes(StandardCharsets.UTF_8), leading);
+        return Base64.getEncoder().encodeToString(sign(privateKey, message));
     }
 
     /**

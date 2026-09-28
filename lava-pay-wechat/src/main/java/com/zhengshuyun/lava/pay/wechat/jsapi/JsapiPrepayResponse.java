@@ -14,10 +14,16 @@
  * limitations under the License.
  */
 
-/**
- * 支付宝 OpenAPI V3 支付协议适配，包含官方仍要求使用 AOP 的电脑网站与手机网站页面支付。
- */
-@NullMarked
-package com.zhengshuyun.lava.pay.alipay;
+package com.zhengshuyun.lava.pay.wechat.jsapi;
 
-import org.jspecify.annotations.NullMarked;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+/**
+ * JSAPI 下单结果。
+ *
+ * @param prepayId 预支付交易会话标识，有效期 2 小时；调起支付时以 {@code prepay_id=xxx} 形式传给前端
+ */
+@JsonIgnoreProperties(ignoreUnknown = true)
+public record JsapiPrepayResponse(@JsonProperty("prepay_id") String prepayId) {
+}

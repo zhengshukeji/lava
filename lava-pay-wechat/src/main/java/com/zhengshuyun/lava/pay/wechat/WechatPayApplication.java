@@ -16,7 +16,9 @@
 
 package com.zhengshuyun.lava.pay.wechat;
 
+import com.zhengshuyun.lava.pay.wechat.h5.H5PayClient;
 import com.zhengshuyun.lava.pay.wechat.internal.WechatPayTransport;
+import com.zhengshuyun.lava.pay.wechat.jsapi.JsapiPayClient;
 import com.zhengshuyun.lava.pay.wechat.nativepay.NativePayClient;
 
 import java.net.URI;
@@ -24,8 +26,8 @@ import java.net.URI;
 /**
  * 绑定一个 APPID 与支付通知地址的轻量微信支付应用上下文。
  *
- * <p>同一商户号可创建多个应用上下文，以隔离不同 APPID 的下单参数；上下文不持有独立连接池或
- * 商户凭证，而是复用创建它的 {@link WechatPayClient} 协议资源。</p>
+ * <p>同一商户号可创建多个应用上下文，以隔离不同 APPID 的下单参数，例如公众号与小程序各用一个；
+ * 上下文不持有独立连接池或商户凭证，而是复用创建它的 {@link WechatPayClient} 协议资源。</p>
  */
 public final class WechatPayApplication {
     /**
@@ -40,6 +42,14 @@ public final class WechatPayApplication {
      * 复用当前 APPID 与通知地址的 Native 支付入口。
      */
     private final NativePayClient nativePayClient;
+    /**
+     * 复用当前 APPID 与通知地址的 JSAPI 支付入口。
+     */
+    private final JsapiPayClient jsapiPayClient;
+    /**
+     * 复用当前 APPID 与通知地址的 H5 支付入口。
+     */
+    private final H5PayClient h5PayClient;
 
     /**
      * 由微信支付根客户端创建应用上下文。
@@ -54,6 +64,8 @@ public final class WechatPayApplication {
         this.appid = appid;
         this.notifyUrl = notifyUrl;
         nativePayClient = new NativePayClient(transport, appid, notifyUrl);
+        jsapiPayClient = new JsapiPayClient(transport, appid, notifyUrl);
+        h5PayClient = new H5PayClient(transport, appid, notifyUrl);
     }
 
     /**
@@ -81,5 +93,23 @@ public final class WechatPayApplication {
      */
     public NativePayClient nativePay() {
         return nativePayClient;
+    }
+
+    /**
+     * 返回 JSAPI 支付入口，公众号网页与小程序共用。
+     *
+     * @return JSAPI 支付客户端
+     */
+    public JsapiPayClient jsapiPay() {
+        return jsapiPayClient;
+    }
+
+    /**
+     * 返回 H5 支付入口，用于微信外的手机浏览器。
+     *
+     * @return H5 支付客户端
+     */
+    public H5PayClient h5Pay() {
+        return h5PayClient;
     }
 }

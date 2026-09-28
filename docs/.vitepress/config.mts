@@ -130,6 +130,8 @@ export default defineConfig({
           text: '支付能力',
           items: [
             { text: 'Native 支付', link: '/lava-pay-wechat/native-pay' },
+            { text: 'JSAPI 支付', link: '/lava-pay-wechat/jsapi-pay' },
+            { text: 'H5 支付', link: '/lava-pay-wechat/h5-pay' },
             { text: '回调通知', link: '/lava-pay-wechat/notification' },
             { text: '查单与关单', link: '/lava-pay-wechat/transaction' },
             { text: '退款与退款查询', link: '/lava-pay-wechat/refund' },
@@ -155,6 +157,8 @@ export default defineConfig({
           text: '支付能力',
           items: [
             { text: '电脑网站支付', link: '/lava-pay-alipay/page-pay' },
+            { text: '手机网站支付', link: '/lava-pay-alipay/wap-pay' },
+            { text: '小程序支付', link: '/lava-pay-alipay/jsapi-pay' },
             { text: '异步通知', link: '/lava-pay-alipay/notification' },
             { text: '查单与关单', link: '/lava-pay-alipay/transaction' },
             { text: '退款与退款查询', link: '/lava-pay-alipay/refund' },

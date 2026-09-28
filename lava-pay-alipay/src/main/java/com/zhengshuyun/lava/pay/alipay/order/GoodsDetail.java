@@ -3,7 +3,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 
-package com.zhengshuyun.lava.pay.alipay.pagepay;
+package com.zhengshuyun.lava.pay.alipay.order;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import com.zhengshuyun.lava.pay.alipay.internal.AlipayValidationUtils;
@@ -12,9 +12,9 @@ import org.jspecify.annotations.Nullable;
 import java.net.URI;
 
 /**
- * 电脑网站支付订单中的单个商品明细。
+ * 下单共用的单个商品明细，电脑网站、手机网站与小程序支付通用。
  */
-public final class PagePayGoodsDetail {
+public final class GoodsDetail {
     /** 商户侧商品编号，最长 64 个字符。 */
     private final String goodsId;
     /** 商品名称，最长 256 个 Unicode 字符。 */
@@ -40,7 +40,7 @@ public final class PagePayGoodsDetail {
      * @param builder 已收集必填商品标识、名称、数量、价格及可选扩展字段的构建器
      * @throws IllegalArgumentException 必填字段缺失，数量或价格不是正数，或展示地址不是绝对 HTTP(S) 地址
      */
-    private PagePayGoodsDetail(Builder builder) {
+    private GoodsDetail(Builder builder) {
         goodsId = ValidationUtils.requireNotBlank(builder.goodsId, "goodsId must not be blank");
         goodsName = ValidationUtils.requireNotBlank(builder.goodsName, "goodsName must not be blank");
         quantity = ValidationUtils.requireNonNull(builder.quantity, "quantity is required");
@@ -282,8 +282,8 @@ public final class PagePayGoodsDetail {
          *
          * @return 不可变商品明细
          */
-        public PagePayGoodsDetail build() {
-            return new PagePayGoodsDetail(this);
+        public GoodsDetail build() {
+            return new GoodsDetail(this);
         }
     }
 }

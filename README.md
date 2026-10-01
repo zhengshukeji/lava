@@ -11,7 +11,7 @@ Lava 是面向 Java 25 的模块化基础设施工具库，为 Java 应用提供
 | 模块                                       | 主要能力                                                  |
 |--------------------------------------------|-----------------------------------------------------------|
 | [`lava-bom`](lava-bom/README.md)           | 统一管理全部 Lava 模块版本                                |
-| [`lava-core`](lava-core/README.md)         | UUIDv7、Snowflake、重试、受限 IO、时间和参数校验          |
+| [`lava-core`](lava-core/README.md)         | UUIDv7、Snowflake、重试、受限 IO、时间、参数校验和客户端 IP |
 | [`lava-json`](lava-json/README.md)         | 基于 Jackson 3 的线程安全 JSON 编解码                     |
 | [`lava-http`](lava-http/README.md)         | 基于 OkHttp 5 的 HTTP 客户端、流式响应和 SSE              |
 | [`lava-pay-wechat`](lava-pay-wechat/README.md) | 微信支付 API v3 协议适配，不依赖微信官方 SDK          |

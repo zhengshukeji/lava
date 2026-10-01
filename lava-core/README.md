@@ -1,7 +1,7 @@
 # lava-core
 
 `lava-core` 提供不依赖通用第三方工具包的基础能力：RFC 9562 UUIDv7、显式 worker 的 Snowflake、实例化重试、有界流读取、IEC/SI
-数据量格式化、严格时间格式、空值安全字符串与容器判断和实用校验。生产依赖只有 JSpecify。
+数据量格式化、严格时间格式、空值安全字符串与容器判断、实用校验和代理链后的客户端 IP 解析。生产依赖只有 JSpecify。
 
 ```xml
 <dependency>
@@ -110,3 +110,16 @@ boolean hasHeaders = MapUtils.isNotEmpty(headers);
 - `DateTimeFormatterUtils` 暴露不可变、严格解析的 `DateTimeFormatter`。
 - `DurationFormatter` 只接受 `Duration` 能精确表达的天到纳秒，不把月或年近似成固定天数。
 - `ValidationUtils` 提供参数条件、非空、非空白和非空集合校验。
+
+## 客户端 IP
+
+部署在 Nginx、负载均衡或 CDN 后面时，按代理链从右往左解析 `X-Forwarded-For`，跳过受信任网段（默认内网段）和指定层数的公网代理：
+
+```java
+ClientIpResolver resolver = ClientIpResolver.builder()
+        .trustedHops(1)
+        .build();
+String clientIp = resolver.resolve(request.getRemoteAddr(), request.getHeader("X-Forwarded-For"));
+```
+
+客户端伪造的左侧值不会被采用；应当返回的那一跳不是合法 IP 时返回 `null`。`trustedHops` 只在流量无法绕过这些代理时成立。

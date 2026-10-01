@@ -1,17 +1,17 @@
 # 敏感词匹配
 
-`SensitiveWordMatcher` 在文本中查找词库里的词，基于 Aho-Corasick 自动机：不管词库有多少词，文本都只扫一遍。词和文本先按 `SensitiveWordNormalizer` 的同一套规则折叠，插空、全角、大小写、兼容字形以及（可选的）繁体写法都能命中，命中位置精确对应原文。
+`SensitiveWordMatcher` 在文本中查找敏感词库里的词，基于 Aho-Corasick 自动机：不管敏感词库有多少词，文本都只扫一遍。词和文本先按 `SensitiveWordNormalizer` 的同一套规则折叠，插空、全角、大小写、兼容字形以及（可选的）繁体写法都能命中，命中位置精确对应原文。
 
 ## 基本用法
 
 ```java
-// 归一化规则：词库录入、搜索和匹配必须共用同一个
+// 归一化规则：敏感词库录入、搜索和匹配必须共用同一个
 SensitiveWordNormalizer normalizer = SensitiveWordNormalizer.builder().build();
 
-// 录入词库前先归一化，存储形态稳定，便于去重
+// 录入敏感词库前先归一化，存储形态稳定，便于去重
 String stored = normalizer.normalize("敏 感_词");   // "敏感词"
 
-// 用词库构建匹配器；词库变更时整体重建一个新的并替换引用
+// 用敏感词库构建匹配器；敏感词库变更时整体重建一个新的并替换引用
 SensitiveWordMatcher matcher = SensitiveWordMatcher.builder()
         .normalizer(normalizer)
         .words(words)
@@ -29,6 +29,14 @@ List<SensitiveWordHit> hits = matcher.findAll(content);
 ```
 
 归一化器和匹配器都不可变、线程安全。匹配器构建后可被多个线程并发读取。
+
+## 敏感词库来源
+
+敏感词库由调用方维护，Lava 不内置。中文敏感词库可参考开源的 [Sensitive-lexicon](https://github.com/konsheng/Sensitive-lexicon)（MIT），按业务裁剪后导入：
+
+- 一两个字的中文短词按子串匹配，容易误伤正常内容，导入前建议剔除或人工确认。
+- 词可以按原始写法录入，统一用同一个归一化器归一化后再存储和构建匹配器。
+- 配置了繁体转简体时，简繁写法只需保留一种。
 
 ## 归一化规则
 
@@ -61,7 +69,7 @@ SensitiveWordNormalizer normalizer = SensitiveWordNormalizer.builder()
 
 ## 繁体转简体
 
-`CharMapping` 是逐字映射表，配置到归一化器后，简繁写法折成同一个匹配形态，词库只需维护一种写法。映射数据由调用方提供，推荐 [OpenCC](https://github.com/BYVoid/OpenCC) 的 `data/dictionary/TSCharacters.txt`（繁体到简体的单字表，Apache-2.0），放入项目资源目录后加载：
+`CharMapping` 是逐字映射表，配置到归一化器后，简繁写法折成同一个匹配形态，敏感词库只需维护一种写法。映射数据由调用方提供，推荐 OpenCC 的 [TSCharacters.txt](https://github.com/BYVoid/OpenCC/blob/master/data/dictionary/TSCharacters.txt)（繁体到简体的单字表，Apache-2.0），放入项目资源目录后加载：
 
 ```java
 CharMapping traditionalToSimplified;
@@ -89,7 +97,7 @@ normalizer.normalize("電 腦");   // "电脑"
 一次扫描的耗时只与文本长度成正比，与词数无关；文本边扫描边折叠，不复制整段文本，命中第一个词即停止。ASCII 与常用汉字跳过 NFKC，不产生临时对象。
 
 ::: warning 边界
-- 词库的录入、搜索和匹配必须使用同一个归一化器（同样的配置）。调整配置等同于改变存储形态，已存的词需要重新归一化，否则会静默失效。
+- 敏感词库的录入、搜索和匹配必须使用同一个归一化器（同样的配置）。调整配置等同于改变存储形态，已存的词需要重新归一化，否则会静默失效。
 - `build()` 会校验逐字映射与其他步骤组合后仍然幂等（映射结果再归一化不变），映射到大写字母或符号时抛出 `IllegalArgumentException`。
 - `findAll` 每处命中后从词尾继续扫描，相互重叠的出现只取先命中的一处。
 :::

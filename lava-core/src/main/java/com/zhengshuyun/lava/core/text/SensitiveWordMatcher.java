@@ -46,7 +46,10 @@ import java.util.Queue;
  * 由同一个 {@link SensitiveWordNormalizer} 折叠成匹配形态，中文插空、全角、大小写等写法都能命中，
  * 命中位置精确回溯到原文。</p>
  *
- * <p>词库变更时整体重建一个新匹配器并替换引用，读线程不会看到构建了一半的自动机。</p>
+ * <p>敏感词库变更时整体重建一个新匹配器并替换引用，读线程不会看到构建了一半的自动机。</p>
+ *
+ * <p>敏感词库由调用方维护。中文敏感词库可参考开源的 <a href="https://github.com/konsheng/Sensitive-lexicon">Sensitive-lexicon</a>（MIT），
+ * 按业务裁剪后使用：一两个字的短词容易误伤正常内容。</p>
  */
 public final class SensitiveWordMatcher {
 
@@ -147,7 +150,7 @@ public final class SensitiveWordMatcher {
     }
 
     /**
-     * 创建构建器：默认使用 {@link SensitiveWordNormalizer#builder()} 的默认规则，词库为空。
+     * 创建构建器：默认使用 {@link SensitiveWordNormalizer#builder()} 的默认规则，敏感词库为空。
      *
      * @return 新的构建器
      */
@@ -165,7 +168,7 @@ public final class SensitiveWordMatcher {
     }
 
     /**
-     * 返回构建时使用的归一化规则；词库的录入和搜索应使用同一个。
+     * 返回构建时使用的归一化规则；敏感词库的录入和搜索应使用同一个。
      *
      * @return 归一化器
      */
@@ -256,7 +259,7 @@ public final class SensitiveWordMatcher {
         private SensitiveWordNormalizer normalizer = SensitiveWordNormalizer.builder().build();
 
         /**
-         * 词库。
+         * 敏感词库。
          */
         private Collection<String> words = List.of();
 
@@ -267,7 +270,7 @@ public final class SensitiveWordMatcher {
         }
 
         /**
-         * 设置归一化规则；必须与词库录入时使用的一致。
+         * 设置归一化规则；必须与敏感词库录入时使用的一致。
          *
          * @param normalizer 归一化器
          * @return 当前构建器
@@ -278,9 +281,9 @@ public final class SensitiveWordMatcher {
         }
 
         /**
-         * 设置词库；词可以是原始写法，构建时统一归一化。
+         * 设置敏感词库；词可以是原始写法，构建时统一归一化。
          *
-         * @param words 词库
+         * @param words 敏感词库
          * @return 当前构建器
          */
         public Builder words(Collection<String> words) {
@@ -293,9 +296,9 @@ public final class SensitiveWordMatcher {
         }
 
         /**
-         * 设置词库。
+         * 设置敏感词库。
          *
-         * @param words 词库
+         * @param words 敏感词库
          * @return 当前构建器
          */
         public Builder words(String... words) {

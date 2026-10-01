@@ -39,6 +39,10 @@ import java.util.function.IntConsumer;
  * }
  * }</pre>
  *
+ * <p>映射数据由调用方提供。繁体转简体推荐 OpenCC 的单字表
+ * <a href="https://github.com/BYVoid/OpenCC/blob/master/data/dictionary/TSCharacters.txt">TSCharacters.txt</a>（Apache-2.0），下载后放入项目资源目录，
+ * 用 {@link #fromOpenCc(InputStream)} 加载。</p>
+ *
  * <p>映射按 codePoint 一对一替换，不改变文本的字符个数。构建时把链式条目折到最终的字
  * （「薴」→「苧」→「苎」时直接记为「薴」→「苎」），保证映射结果再映射不变；出现循环时拒绝构建。</p>
  *
@@ -125,7 +129,8 @@ public final class CharMapping {
     }
 
     /**
-     * 解析 OpenCC 字典格式的单字表，如 {@code TSCharacters.txt}（繁体到简体）。
+     * 解析 OpenCC 字典格式的单字表，如繁体到简体的
+     * <a href="https://github.com/BYVoid/OpenCC/blob/master/data/dictionary/TSCharacters.txt">TSCharacters.txt</a>。
      *
      * <p>每行为「原字 Tab 候选」，多个候选以空格分隔；{@code #} 开头的注释和空行跳过。候选取第一个，
      * 与 OpenCC 默认转换一致；例外是第一个候选在 BMP 外、后面又有 BMP 内的其他字时，取第一个 BMP

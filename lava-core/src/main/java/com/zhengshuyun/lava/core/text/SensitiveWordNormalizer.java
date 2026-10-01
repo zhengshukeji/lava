@@ -30,7 +30,7 @@ import java.text.Normalizer;
  *         .charMapping(traditionalToSimplified)
  *         .build();
  *
- * // 录入词库前归一化：「敏 感_詞」→「敏感词」，「Hello-World」→「hello world」
+ * // 录入敏感词库前归一化：「敏 感_詞」→「敏感词」，「Hello-World」→「hello world」
  * String stored = normalizer.normalize(input);
  * }</pre>
  *
@@ -41,7 +41,7 @@ import java.text.Normalizer;
  * {@code java}，{@code abc} 不会命中「tab cat」去空格后的 {@code tabcat}，适合代码较多的文本；代价是
  * 「a b c」这类逐字母插空的写法拦不住。关闭后 ASCII 与中文一样按子串匹配。</p>
  *
- * <p>同一套词库的录入、搜索和匹配必须使用同一个归一化器（同样的配置），否则存储形态与匹配形态
+ * <p>同一套敏感词库的录入、搜索和匹配必须使用同一个归一化器（同样的配置），否则存储形态与匹配形态
  * 对不上，词会静默失效。调整配置等同于改变存储形态，已存的词需要重新归一化。</p>
  */
 public final class SensitiveWordNormalizer {

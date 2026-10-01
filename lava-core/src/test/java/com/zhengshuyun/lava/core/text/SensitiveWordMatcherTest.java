@@ -205,7 +205,7 @@ class SensitiveWordMatcherTest {
     /**
      * 用默认归一化规则构建匹配器。
      *
-     * @param words 词库
+     * @param words 敏感词库
      * @return 匹配器
      */
     private static SensitiveWordMatcher matcher(String... words) {

@@ -60,7 +60,8 @@ export default defineConfig({
             { text: 'IO 与数据量', link: '/lava-core/io' },
             { text: '字符串、集合与校验', link: '/lava-core/lang' },
             { text: '时间格式化与解析', link: '/lava-core/time' },
-            { text: '客户端 IP', link: '/lava-core/net' }
+            { text: '客户端 IP', link: '/lava-core/net' },
+            { text: '敏感词匹配', link: '/lava-core/text' }
           ]
         }
       ],

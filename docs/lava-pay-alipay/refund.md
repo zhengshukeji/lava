@@ -51,9 +51,13 @@ RefundQueryResult latest = client.refunds().query(
 );
 
 latest.requireRefund(
+        // 可信商户订单号
         "ORDER_001",
+        // 可信商户退款请求号
         "REFUND_001",
+        // 可信原订单金额，单位为分
         10_000,
+        // 可信退款金额，单位为分
         5_000
 );
 

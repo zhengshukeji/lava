@@ -39,9 +39,13 @@ LocalDateTime fourth = TimeUtils.parse("2026年08月30日 12时30分");
 
 ```java
 DurationFormatter formatter = DurationFormatter.builder()
+        // 单位显示为中文，如「1 分 30 秒」
         .chinese()
+        // 保留的最大与最小单位：天到秒
         .range(ChronoUnit.DAYS, ChronoUnit.SECONDS)
+        // 值为零的单位不显示
         .showZeroValues(false)
+        // 各段之间的分隔符
         .separator(" ")
         .build();
 

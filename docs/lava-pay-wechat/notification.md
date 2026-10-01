@@ -50,9 +50,13 @@ RefundNotification notification = client.notifications()
         .parseRefund(headers, rawRequestBody);
 
 notification.requireRefund(
+        // 可信商户订单号
         "ORDER_001",
+        // 可信商户退款单号
         "REFUND_001",
+        // 可信原订单金额，单位为分
         100,
+        // 可信退款金额，单位为分
         50
 );
 ```

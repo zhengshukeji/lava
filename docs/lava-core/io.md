@@ -15,6 +15,7 @@
 ## 有界读取
 
 ```java
+// 第二个参数是字节数上限
 byte[] bytes = ByteStreamUtils.readAllBytes(input, 2 * 1024 * 1024L);
 String text = ByteStreamUtils.readUtf8(input, 256 * 1024L);
 ```

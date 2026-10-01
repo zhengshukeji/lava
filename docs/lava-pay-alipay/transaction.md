@@ -7,7 +7,12 @@
 ```java
 Trade trade = client.transactions().queryByOutTradeNo("ORDER_001");
 
-trade.requireOrder("ORDER_001", 10_000);
+trade.requireOrder(
+        // 可信商户订单号
+        "ORDER_001",
+        // 可信订单金额，单位为分
+        10_000
+);
 if (trade.paid()) {
     orderService.markPaidIdempotently(trade.tradeNo());
 }

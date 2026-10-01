@@ -37,7 +37,9 @@ JsonCodec json = new JsonCodec(JsonMapperFactory.builder()
 
 ```java
 record Payload(
+        // 注解显式恢复为 number
         @JsonFormat(shape = JsonFormat.Shape.NUMBER) long numericId,
+        // 默认编码为 string
         long stringId
 ) {
 }

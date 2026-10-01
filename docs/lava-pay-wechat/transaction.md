@@ -18,8 +18,11 @@ Transaction byWechatOrder = client.transactions()
 
 ```java
 transaction.requireOrder(
+        // 可信 APPID
         "wx1234567890",
+        // 可信商户订单号
         "ORDER_001",
+        // 可信订单金额，单位为分
         100
 );
 ```
@@ -28,10 +31,15 @@ transaction.requireOrder(
 
 ```java
 transaction.requirePaidOrder(
+        // 可信 APPID
         "wx1234567890",
+        // 可信商户订单号
         "ORDER_001",
+        // 可信微信支付订单号
         "4200000000000000001",
+        // 可信付款人 OpenID
         "openid-from-trusted-record",
+        // 可信订单金额，单位为分
         100
 );
 ```

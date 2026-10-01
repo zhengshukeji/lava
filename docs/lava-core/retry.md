@@ -6,12 +6,17 @@
 
 ```java
 RetryPolicy<String> policy = RetryPolicy.<String>builder()
+        // 最多执行 4 次（含首次调用）
         .maxAttempts(4)
+        // 每次失败后固定等待 200 毫秒
         .fixedDelay(Duration.ofMillis(200))
+        // 只有 IOException 触发重试
         .retryOnException(IOException.class)
+        // 结果为空白字符串时同样重试
         .retryOnResult(String::isBlank)
         .build();
 
+// 执行操作并按策略自动重试
 String result = policy.call(service::load);
 ```
 
@@ -22,10 +27,12 @@ String result = policy.call(service::load);
 构建器提供三种常用策略：
 
 ```java
+// 固定延迟：每次重试前固定等 200 毫秒
 RetryPolicy<String> fixed = RetryPolicy.<String>builder()
         .fixedDelay(Duration.ofMillis(200))
         .build();
 
+// 指数退避：100ms 起，每次 ×2，封顶 2s
 RetryPolicy<String> exponential = RetryPolicy.<String>builder()
         .exponentialBackoff(
                 Duration.ofMillis(100),
@@ -34,6 +41,7 @@ RetryPolicy<String> exponential = RetryPolicy.<String>builder()
         )
         .build();
 
+// 指数退避 + 完全抖动：在 [0, 当前退避值) 内随机取延迟
 RetryPolicy<String> jitter = RetryPolicy.<String>builder()
         .exponentialBackoffWithFullJitter(
                 Duration.ofMillis(100),
@@ -49,7 +57,9 @@ RetryPolicy<String> jitter = RetryPolicy.<String>builder()
 
 ```java
 RetryPolicy<Response> policy = RetryPolicy.<Response>builder()
+        // 按异常判断：IO 类失败才重试
         .retryOnException(exception -> exception instanceof IOException)
+        // 按结果判断：503 视为可重试
         .retryOnResult(response -> response.statusCode() == 503)
         .build();
 ```
@@ -67,6 +77,7 @@ RetryPolicy<Response> policy = RetryPolicy.<Response>builder()
 
 ```java
 RetryPolicy<String> policy = RetryPolicy.<String>builder()
+        // 每次尝试结束后回调，可读取尝试序号、是否将继续重试、下次延迟和失败原因
         .listener(attempt -> metrics.record(
                 attempt.attempt(),
                 attempt.maxAttempts(),
@@ -83,10 +94,13 @@ RetryPolicy<String> policy = RetryPolicy.<String>builder()
 
 ```java
 RetryPolicy<Void> policy = RetryPolicy.<Void>builder()
+        // 最多执行 3 次（含首次调用）
         .maxAttempts(3)
+        // 只有 IOException 触发重试
         .retryOnException(IOException.class)
         .build();
 
+// 无返回值版本，语义同 call(...)
 policy.run(service::refresh);
 ```
 

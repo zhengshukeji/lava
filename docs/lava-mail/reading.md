@@ -49,6 +49,7 @@ try (MailReader reader = new MailReader(imap, credential)) {
 
 ```java
 try (OutputStream output = Files.newOutputStream(target)) {
+    // attachmentIndex 是摘要列表中附件元数据的下标
     long bytes = reader.downloadAttachment(
             messageId,
             attachmentIndex,

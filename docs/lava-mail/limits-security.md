@@ -13,15 +13,20 @@
 
 ```java
 MailLimits limits = new MailLimits(
+        // 单个正文上限
         5 * MailLimits.MEBIBYTE,
+        // 单个附件上限
         20 * MailLimits.MEBIBYTE,
+        // 单次解码预算
         30 * MailLimits.MEBIBYTE,
+        // MIME 嵌套深度
         15
 );
 
 MailClientOptions options = new MailClientOptions(
         limits,
         Clock.systemUTC(),
+        // OAuth2 token 到期前提前刷新的时间
         Duration.ofMinutes(1)
 );
 ```

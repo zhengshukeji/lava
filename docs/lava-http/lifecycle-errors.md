@@ -19,6 +19,7 @@ HttpClient client = HttpClient.builder()
         .readTimeout(Duration.ofSeconds(30))
         .writeTimeout(Duration.ofSeconds(10))
         .callTimeout(Duration.ofSeconds(60))
+        // 最大空闲连接 10 个，空闲连接存活 5 分钟
         .connectionPool(10, Duration.ofMinutes(5))
         .followRedirects(true)
         .followSslRedirects(false)

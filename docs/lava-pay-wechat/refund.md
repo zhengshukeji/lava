@@ -25,11 +25,17 @@ Refund latest = client.refunds()
         .queryByOutRefundNo("REFUND_001");
 
 latest.requireRefund(
+        // 可信商户订单号
         "ORDER_001",
+        // 可信微信支付订单号
         "4200000000000000001",
+        // 可信商户退款单号
         "REFUND_001",
+        // 可信微信支付退款单号
         "5000000000000000001",
+        // 可信原订单金额，单位为分
         100,
+        // 可信退款金额，单位为分
         50
 );
 ```

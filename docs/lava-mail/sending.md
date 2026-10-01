@@ -14,9 +14,13 @@ MailCredential credential = new PasswordCredential(
 );
 
 MailSendRequest request = MailSendRequest.text(
+        // 发件人
         new MailAddress("robot@example.com", "Robot"),
+        // 收件人
         List.of(new MailAddress("ops@example.com")),
+        // 主题
         "Daily report",
+        // 纯文本正文
         "All jobs completed."
 );
 
@@ -39,14 +43,23 @@ MailAttachment attachment = new MailAttachment(
 );
 
 MailSendRequest request = new MailSendRequest(
+        // 发件人
         new MailAddress("robot@example.com", "Robot"),
+        // 主送
         List.of(new MailAddress("ops@example.com")),
+        // 抄送
         List.of(),
+        // 密送
         List.of(),
+        // 回复地址
         List.of(),
+        // 主题
         "Daily report",
+        // 纯文本正文
         "请查看附件。",
+        // HTML 正文
         "<p>请查看附件。</p>",
+        // 附件
         List.of(attachment)
 );
 ```
@@ -56,7 +69,9 @@ MailSendRequest request = new MailSendRequest(
 ## TLS 模式
 
 ```java
+// 明文连接后升级到 TLS，常用端口 587
 SmtpServerConfig startTls = SmtpServerConfig.startTls(host, 587);
+// 连接即 TLS，常用端口 465
 SmtpServerConfig implicitTls = SmtpServerConfig.implicitTls(host, 465);
 ```
 

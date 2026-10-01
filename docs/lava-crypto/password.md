@@ -7,10 +7,13 @@ PasswordHasher hasher = new PasswordHasher();
 char[] password = readPassword();
 
 try {
+    // 生成 PHC 格式字符串，内含算法参数与随机盐
     String encoded = hasher.hash(password);
     boolean matches = hasher.verify(password, encoded);
+    // 旧哈希的参数落后于当前策略时提示升级
     boolean upgrade = hasher.needsRehash(encoded);
 } finally {
+    // 用完立即清零，减少密码在内存中的残留
     Arrays.fill(password, '\0');
 }
 ```
@@ -33,6 +36,7 @@ try {
 
 ```java
 PasswordHasher hasher = new PasswordHasher(
+        // 依次为：内存 KiB、迭代次数、并行通道数、盐字节数、哈希字节数
         new PasswordHashPolicy(65_536, 3, 1, 16, 32)
 );
 ```

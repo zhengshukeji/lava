@@ -25,7 +25,9 @@ URI codeUrl = response.codeUrl();
 ```java
 PrepayRequest request = PrepayRequest.builder()
         .description("深圳门店订单")
+        // 商户侧唯一订单号，业务内保持稳定
         .outTradeNo("ORDER_002")
+        // 订单总金额，单位为分
         .amount(528_800)
         .detail(PrepayDetail.builder()
                 .addGoodsDetail(
@@ -33,14 +35,17 @@ PrepayRequest request = PrepayRequest.builder()
                                 .merchantGoodsId("IPHONE_001")
                                 .goodsName("iPhone")
                                 .quantity(1)
+                                // 单件价格，单位为分
                                 .unitPrice(528_800)
                                 .build()
                 )
                 .build())
         .sceneInfo(PrepaySceneInfo.builder()
+                // 用户真实 IP，不是服务器 IP
                 .payerClientIp("203.0.113.10")
                 .deviceId("POS_001")
                 .build())
+        // 不开启分账
         .profitSharing(false)
         .build();
 ```

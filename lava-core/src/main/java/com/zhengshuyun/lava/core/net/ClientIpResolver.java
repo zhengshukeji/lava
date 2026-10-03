@@ -25,9 +25,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Function;
 
 /**
- * 从直连地址和 {@code X-Forwarded-For} 中解析真实客户端 IP，不可变且线程安全。
+ * 从直连地址、CDN 专用请求头和 {@code X-Forwarded-For} 中解析真实客户端 IP，不可变且线程安全。
  *
  * <pre>{@code
  * // 客户端 → CDN → Nginx → 应用：Nginx 在内网段内自动信任，CDN 是一层需要额外跳过的公网代理
@@ -35,7 +36,7 @@ import java.util.List;
  *         .trustedHops(1)
  *         .build();
  *
- * String clientIp = resolver.resolve(request.getRemoteAddr(), request.getHeader("X-Forwarded-For"));
+ * String clientIp = resolver.resolve(request.getRemoteAddr(), request::getHeader);
  * }</pre>
  *
  * <p>{@code X-Forwarded-For} 的每一跳代理都把它看到的上一跳追加到末尾，最左边的值由客户端
@@ -45,6 +46,9 @@ import java.util.List;
  *
  * <p>{@code trustedHops} 只在所有流量都必须经过这些代理时成立：如果源站可以被绕过 CDN 直连，
  * 直连者自己就占了 CDN 的位置，被跳过之后取到的是它伪造的值。这类部署应在源站只放行 CDN 回源。</p>
+ *
+ * <p>CDN 会把客户端 IP 写进专用请求头时（如阿里云 ESA 的 {@code ali-real-client-ip}），可以用
+ * {@link Builder#clientIpHeader(String)} 配置头名，解析时优先读取它，没有时再解析 {@code X-Forwarded-For}。</p>
  *
  * <p>只接受 IP 字面量，不做 DNS 解析；IPv6 支持方括号和端口写法，IPv4 支持端口写法，IPv4 映射的
  * IPv6 地址按 IPv4 处理。</p>
@@ -67,6 +71,11 @@ public final class ClientIpResolver {
     );
 
     /**
+     * 代理链请求头名称。
+     */
+    private static final String X_FORWARDED_FOR = "X-Forwarded-For";
+
+    /**
      * 受信任代理所在的网段；位于其中的地址总是被跳过，不消耗 {@link #trustedHops}。
      */
     private final List<IpRange> trustedProxies;
@@ -77,6 +86,11 @@ public final class ClientIpResolver {
     private final int trustedHops;
 
     /**
+     * CDN 写入真实客户端 IP 的请求头名称，如 {@code ali-real-client-ip}、{@code CF-Connecting-IP}；未配置时为 {@code null}。
+     */
+    private final @Nullable String clientIpHeader;
+
+    /**
      * 按构建器的配置创建解析器。
      *
      * @param builder 已校验的构建器
@@ -84,6 +98,7 @@ public final class ClientIpResolver {
     private ClientIpResolver(Builder builder) {
         this.trustedProxies = List.copyOf(builder.trustedProxies);
         this.trustedHops = builder.trustedHops;
+        this.clientIpHeader = builder.clientIpHeader;
     }
 
     /**
@@ -96,14 +111,42 @@ public final class ClientIpResolver {
     }
 
     /**
-     * 解析客户端 IP。
+     * 解析客户端 IP：优先读取 {@link Builder#clientIpHeader(String)} 配置的头，没有时解析 {@code X-Forwarded-For}。
+     *
+     * <p>配置的头只在直连方是代理时读取，即直连地址位于受信任网段，或配置了 {@code trustedHops}；
+     * 否则直连方就是客户端本人，它带的头不可信，直接按 {@code X-Forwarded-For} 规则处理。</p>
+     *
+     * <p>这道检查只看直连地址，分辨不出请求是否真的经过了 CDN：源站前面有 Nginx 时直连方总是 Nginx，
+     * 绕过 CDN 直连 Nginx 的请求同样会被读取。防伪造依赖源站只放行 CDN 回源。</p>
      *
      * @param remoteAddress 当前连接的对端地址，如 Servlet 的 {@code getRemoteAddr()}
-     * @param forwardedFor  {@code X-Forwarded-For} 的值；多行时按逗号拼接后传入，没有时传 {@code null}
+     * @param headers       按名称取请求头的函数，如 Servlet 的 {@code request::getHeader}，没有该头时返回
+     *                      {@code null}；同名头有多行时应按逗号拼接返回
+     * @return 规范化后的客户端 IP 文本；配置的头存在但不是合法 IP 字面量，或应当返回的那一跳不是合法 IP
+     * 字面量时返回 {@code null}
+     */
+    public @Nullable String resolve(String remoteAddress, Function<String, @Nullable String> headers) {
+        ValidationUtils.requireNonNull(remoteAddress, "remoteAddress must not be null");
+        ValidationUtils.requireNonNull(headers, "headers must not be null");
+        if (clientIpHeader != null && isProxy(remoteAddress)) {
+            String value = headers.apply(clientIpHeader);
+            if (value != null && !value.isBlank()) {
+                // 头由 CDN 写入，值不合法说明链路异常；不退回更不可信的 X-Forwarded-For
+                InetAddress address = parseLiteral(value.strip());
+                return address == null ? null : address.getHostAddress();
+            }
+        }
+        return resolveForwardedFor(remoteAddress, headers.apply(X_FORWARDED_FOR));
+    }
+
+    /**
+     * 按代理链从右往左解析 {@code X-Forwarded-For}。
+     *
+     * @param remoteAddress 直连地址
+     * @param forwardedFor  {@code X-Forwarded-For} 的值，没有时为 {@code null}
      * @return 规范化后的客户端 IP 文本；应当返回的那一跳不是合法 IP 字面量时返回 {@code null}
      */
-    public @Nullable String resolve(String remoteAddress, @Nullable String forwardedFor) {
-        ValidationUtils.requireNonNull(remoteAddress, "remoteAddress must not be null");
+    private @Nullable String resolveForwardedFor(String remoteAddress, @Nullable String forwardedFor) {
         List<String> chain = new ArrayList<>();
         if (forwardedFor != null) {
             for (String hop : forwardedFor.split(",")) {
@@ -137,6 +180,17 @@ public final class ClientIpResolver {
         }
         // 链至少包含直连地址，循环一定在 i == 0 时返回
         throw new IllegalStateException("unreachable");
+    }
+
+    /**
+     * 判断直连方是否为代理：位于受信任网段，或者配置了需要跳过的公网代理层数。
+     *
+     * @param remoteAddress 直连地址
+     * @return 直连方是代理时为 {@code true}；地址不是 IP 字面量时为 {@code false}
+     */
+    private boolean isProxy(String remoteAddress) {
+        InetAddress address = parseLiteral(remoteAddress.strip());
+        return address != null && (trustedHops > 0 || isTrusted(address));
     }
 
     /**
@@ -267,6 +321,11 @@ public final class ClientIpResolver {
         private int trustedHops;
 
         /**
+         * CDN 写入真实客户端 IP 的请求头名称。
+         */
+        private @Nullable String clientIpHeader;
+
+        /**
          * 只能通过 {@link ClientIpResolver#builder()} 创建。
          */
         private Builder() {
@@ -308,6 +367,22 @@ public final class ClientIpResolver {
         public Builder trustedHops(int trustedHops) {
             ValidationUtils.requireTrue(trustedHops >= 0, "trustedHops must be >= 0");
             this.trustedHops = trustedHops;
+            return this;
+        }
+
+        /**
+         * 设置 CDN 写入真实客户端 IP 的请求头，如阿里云 ESA 的 {@code ali-real-client-ip}、Cloudflare 的
+         * {@code CF-Connecting-IP}；只对 {@link ClientIpResolver#resolve(String, Function)} 生效。
+         *
+         * <p>CDN 在边缘节点按 TCP 连接写入该头，不受回源层数影响，比按 {@code trustedHops} 数跳数可靠。
+         * 前提是源站只放行 CDN 回源，否则客户端绕过 CDN 时可以自己带上这个头。</p>
+         *
+         * @param clientIpHeader 请求头名称，大小写由取头函数处理
+         * @return 当前构建器
+         */
+        public Builder clientIpHeader(String clientIpHeader) {
+            ValidationUtils.requireNotBlank(clientIpHeader, "clientIpHeader must not be blank");
+            this.clientIpHeader = clientIpHeader.strip();
             return this;
         }
 

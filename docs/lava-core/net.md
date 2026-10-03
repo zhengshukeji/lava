@@ -12,10 +12,10 @@ ClientIpResolver resolver = ClientIpResolver.builder()
         .build();
 
 // 无法可靠识别时返回 null
-String clientIp = resolver.resolve(request.getRemoteAddr(), request.getHeader("X-Forwarded-For"));
+String clientIp = resolver.resolve(request.getRemoteAddr(), request::getHeader);
 ```
 
-解析器不可变、线程安全，应在应用内长期复用。模块不依赖 Servlet，调用方自行传入直连地址和请求头的值。
+解析器不可变、线程安全，应在应用内长期复用，例如在 Spring 中注册为单例 Bean。模块不依赖 Servlet，调用方传入直连地址和按名称取请求头的函数（Servlet 下即 `request::getHeader`）；同名头有多行时，函数应按逗号拼接后返回。
 
 ## 解析规则
 
@@ -59,6 +59,29 @@ ClientIpResolver resolver = ClientIpResolver.builder()
 ```
 
 网段写法为 `地址/前缀`，也可以只写单个地址。非法网段在构建时抛出 `IllegalArgumentException`。
+
+## CDN 专用请求头
+
+阿里云 ESA（`ali-real-client-ip`）、Cloudflare（`CF-Connecting-IP`）等 CDN 会在边缘节点按 TCP 连接把客户端 IP 写进专用请求头。它只有一个值，不受分层回源等层数变化影响，比按 `trustedHops` 数跳数可靠。
+
+```java
+ClientIpResolver resolver = ClientIpResolver.builder()
+        // 头名由调用方传入，库不绑定任何 CDN
+        .clientIpHeader("ali-real-client-ip")
+        .build();
+
+String clientIp = resolver.resolve(request.getRemoteAddr(), request::getHeader);
+```
+
+配置了 `clientIpHeader` 时的处理顺序：
+
+1. 直连方是代理（直连地址在受信任网段内，或配置了 `trustedHops`）时，读取配置的头；公网客户端直连时自己带的头不读取。
+2. 头存在且是合法 IP，规范化后返回；头存在但不是合法 IP，返回 `null`，不退回 `X-Forwarded-For`。
+3. 头不存在或为空白时，按上文规则解析 `X-Forwarded-For`。
+
+::: warning 防伪造靠部署
+第 1 步只看直连地址，分辨不出请求是否真的经过了 CDN。源站前面有 Nginx 时直连方总是 Nginx，绕过 CDN 直连 Nginx 的请求带上这个头同样会被采信。必须在防火墙、安全组或 Nginx 上只放行 CDN 回源地址。
+:::
 
 ## 地址格式
 

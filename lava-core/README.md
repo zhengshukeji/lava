@@ -119,7 +119,9 @@ boolean hasHeaders = MapUtils.isNotEmpty(headers);
 ClientIpResolver resolver = ClientIpResolver.builder()
         .trustedHops(1)
         .build();
-String clientIp = resolver.resolve(request.getRemoteAddr(), request.getHeader("X-Forwarded-For"));
+String clientIp = resolver.resolve(request.getRemoteAddr(), request::getHeader);
 ```
 
-客户端伪造的左侧值不会被采用；应当返回的那一跳不是合法 IP 时返回 `null`。`trustedHops` 只在流量无法绕过这些代理时成立。
+CDN 会把客户端 IP 写进专用请求头时（如阿里云 ESA 的 `ali-real-client-ip`），用 `clientIpHeader("ali-real-client-ip")` 配置头名，解析时优先读取，没有时再解析 `X-Forwarded-For`。
+
+客户端伪造的左侧值不会被采用；应当返回的那一跳不是合法 IP 时返回 `null`。`trustedHops` 和专用请求头都只在流量无法绕过 CDN 时成立，源站应只放行 CDN 回源。

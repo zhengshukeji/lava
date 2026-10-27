@@ -200,7 +200,7 @@ class DataClientTest extends ClientTestSupport {
      * 验证修改单条与批量修改的请求正文。
      */
     @Test
-    void updateAndBatchUpdateSendWrappedData() {
+    void 单条和批量更新只发送指定字段() {
         server.enqueue(200, RECORD_RESPONSE);
         server.enqueue(200, "{\"status\":\"success\",\"success_count\":2}");
 
@@ -216,6 +216,39 @@ class DataClientTest extends ClientTestSupport {
                 + "\",\"data_id\":\"d1\",\"data\":{\"_widget_1\":{\"value\":\"李四\"}},\"is_start_trigger\":true}");
         assertRequest("/api/v5/app/entry/data/batch_update", "{\"app_id\":\"" + APP_ID + "\",\"entry_id\":\""
                 + ENTRY_ID + "\",\"data_ids\":[\"d1\",\"d2\"],\"data\":{\"_widget_2\":{\"value\":100}}}");
+    }
+
+    /**
+     * 验证更新请求保留显式 null、空文本和空列表，防止序列化时混淆清空与省略字段。
+     * 本测试仅验证发送正文，不模拟服务端清空或保留数据的结果。
+     */
+    @Test
+    void 单条和批量更新保留显式空值且不补齐缺失字段() {
+        server.enqueue(200, RECORD_RESPONSE);
+        server.enqueue(200, "{\"status\":\"success\",\"success_count\":2}");
+        Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("_widget_1", null);
+        changes.put("_widget_2", "");
+        changes.put("_widget_3", List.of());
+
+        client.data().update(
+                APP_ID,
+                ENTRY_ID,
+                "d1",
+                changes
+        );
+        client.data().batchUpdate(BatchUpdateDataRequest.builder()
+                .appId(APP_ID).entryId(ENTRY_ID).dataIds(List.of("d1", "d2"))
+                .data(changes).build());
+
+        // 比较整个正文，确保未提供的字段不会被补成 null，同时显式空值不会被丢弃。
+        String expectedData = "{\"_widget_1\":{\"value\":null},"
+                + "\"_widget_2\":{\"value\":\"\"},\"_widget_3\":{\"value\":[]}}";
+        assertRequest("/api/v5/app/entry/data/update", "{\"app_id\":\"" + APP_ID
+                + "\",\"entry_id\":\"" + ENTRY_ID + "\",\"data_id\":\"d1\",\"data\":" + expectedData + "}");
+        assertRequest("/api/v5/app/entry/data/batch_update", "{\"app_id\":\"" + APP_ID
+                + "\",\"entry_id\":\"" + ENTRY_ID + "\",\"data_ids\":[\"d1\",\"d2\"],\"data\":"
+                + expectedData + "}");
     }
 
     /**

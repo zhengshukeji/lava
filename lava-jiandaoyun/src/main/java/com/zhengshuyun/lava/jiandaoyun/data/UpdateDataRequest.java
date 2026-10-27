@@ -29,6 +29,8 @@ import java.util.Map;
  *
  * <p>只修改 {@code data} 中出现的字段。子表单必须整体提交：保留的行需带上原行 {@code _id}，
  * 不带或带错 {@code _id} 的行会生成新 ID。值为 {@code null} 表示清空字段。</p>
+ * <p>SDK 不会为缺失字段补值，也不会过滤显式 null。不要把 DTO 中未赋值的属性转换为
+ * Map 中的 null 条目；请仅传入明确需要修改或清空的字段。</p>
  */
 public final class UpdateDataRequest {
     /** 应用 ID。 */

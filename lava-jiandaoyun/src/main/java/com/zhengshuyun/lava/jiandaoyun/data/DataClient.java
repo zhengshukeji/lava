@@ -19,14 +19,18 @@ package com.zhengshuyun.lava.jiandaoyun.data;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
+import com.zhengshuyun.lava.jiandaoyun.exception.JiandaoyunProtocolException;
 import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunDataUtils;
 import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunTransport;
 import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunValidationUtils;
 import org.jspecify.annotations.Nullable;
+import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 简道云表单数据客户端，提供单条与批量的增删改查。
@@ -104,26 +108,37 @@ public final class DataClient {
      *
      * <p>每页按请求的 {@code limit} 取数（未配置时取 100），直到某页不足一页为止；请求中的
      * {@code dataId} 作为起始游标。数据量大时注意内存占用与接口频率限制（30 次/秒）。</p>
+     * <p>结果按数据 ID 去重，保留首次出现的记录及其顺序；分页结束仍以原始页条数为准。</p>
      *
      * @param request 查询条件
      * @return 全部数据
+     * @throws JiandaoyunProtocolException 记录缺少有效 ID，或继续翻页时游标未向前推进
      */
     public List<DataRecord> listAll(ListDataRequest request) {
         ValidationUtils.requireNonNull(request, "request must not be null");
         int pageSize = request.limit() == null ? MAX_PAGE_SIZE : request.limit();
-        List<DataRecord> result = new ArrayList<>();
+        Map<String, DataRecord> result = new LinkedHashMap<>();
         String cursor = request.dataId();
         while (true) {
             List<DataRecord> page = listPage(request, cursor, pageSize);
-            result.addAll(page);
+            String nextCursor = cursor;
+            for (DataRecord record : page) {
+                String id = record.id();
+                if (id == null || id.isBlank()) {
+                    throw new JiandaoyunProtocolException("简道云分页记录缺少有效的 _id，无法去重");
+                }
+                result.putIfAbsent(id, record);
+                nextCursor = id;
+            }
+            // 去重后条数可能不足一页，结束条件必须使用服务端返回的原始页条数。
             if (page.size() < pageSize) {
-                return result;
+                return new ArrayList<>(result.values());
             }
-            cursor = page.getLast().id();
-            if (cursor == null) {
-                // 缺少 _id 时无法继续推进游标，继续请求只会重复取同一页
-                return result;
+            // 去重不能防止服务端重复返回同一满页，仍需保证后续请求的游标向前推进。
+            if (cursor != null && nextCursor.compareTo(cursor) <= 0) {
+                throw new JiandaoyunProtocolException("简道云分页响应的 _id 游标未向前推进");
             }
+            cursor = nextCursor;
         }
     }
 
@@ -167,14 +182,18 @@ public final class DataClient {
      */
     public BatchCreateResult batchCreate(BatchCreateDataRequest request) {
         ValidationUtils.requireNonNull(request, "request must not be null");
-        return transport.post(transport.endpoint(BATCH_CREATE_PATH), new BatchCreatePayload(
+        BatchResultPayload payload = transport.post(transport.endpoint(BATCH_CREATE_PATH), new BatchCreatePayload(
                 request.appId(),
                 request.entryId(),
                 JiandaoyunDataUtils.wrapAll(request.dataList()),
                 request.dataCreator(),
                 request.startWorkflow(),
                 request.transactionId()
-        ), BatchCreateResult.class);
+        ), BatchResultPayload.class);
+        if (payload.successIds() == null || payload.successIds().stream().anyMatch(Objects::isNull)) {
+            throw new JiandaoyunProtocolException("简道云批量新建响应缺少有效的 success_ids 数组");
+        }
+        return new BatchCreateResult(payload.successCount().intValue(), payload.successIds());
     }
 
     /**
@@ -224,7 +243,7 @@ public final class DataClient {
                 request.dataIds(),
                 JiandaoyunDataUtils.wrap(request.data()),
                 request.transactionId()
-        ), CountPayload.class).successCount();
+        ), BatchResultPayload.class).successCount().intValue();
     }
 
     /**
@@ -263,7 +282,7 @@ public final class DataClient {
                 JiandaoyunValidationUtils.requireAppId(appId),
                 JiandaoyunValidationUtils.requireEntryId(entryId),
                 List.copyOf(ValidationUtils.requireNonNull(dataIds, "dataIds must not be null"))
-        ), CountPayload.class).successCount();
+        ), BatchResultPayload.class).successCount().intValue();
     }
 
     /**
@@ -295,12 +314,12 @@ public final class DataClient {
      * @param startTrigger 是否触发智能助手；为 {@code null} 时省略
      */
     private void deleteData(String appId, String entryId, String dataId, @Nullable Boolean startTrigger) {
-        transport.postVoid(transport.endpoint(DELETE_PATH), new DataIdPayload(
+        transport.post(transport.endpoint(DELETE_PATH), new DataIdPayload(
                 JiandaoyunValidationUtils.requireAppId(appId),
                 JiandaoyunValidationUtils.requireEntryId(entryId),
                 JiandaoyunValidationUtils.requireNotBlank(dataId, "dataId"),
                 startTrigger
-        ));
+        ), StatusPayload.class);
     }
 
     /**
@@ -440,6 +459,10 @@ public final class DataClient {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record RecordPayload(Map<String, Object> data) {
+        /** 校验必须返回数据对象，不限制对象内的业务字段。 */
+        private RecordPayload {
+            ValidationUtils.requireNonNull(data, "response data is required");
+        }
     }
 
     /**
@@ -449,14 +472,46 @@ public final class DataClient {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record ListPayload(List<Map<String, Object>> data) {
+        /** 空列表合法，但列表缺失或包含 null 不能作为记录读取。 */
+        private ListPayload {
+            ValidationUtils.requireNonNull(data, "response data is required");
+            ValidationUtils.requireTrue(data.stream().noneMatch(Objects::isNull),
+                    "response data must not contain null");
+        }
     }
 
     /**
-     * 批量操作的成功条数响应正文。
+     * 单条删除的成功响应正文。
      *
-     * @param successCount 成功条数
+     * @param status 操作结果
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record CountPayload(@JsonProperty("success_count") int successCount) {
+    private record StatusPayload(String status) {
+        /** 删除接口必须明确返回成功，其他允许空正文的接口不受影响。 */
+        private StatusPayload {
+            ValidationUtils.requireTrue("success".equals(status), "response status must be success");
+        }
+    }
+
+    /**
+     * 批量操作响应正文，仅新建接口返回成功 ID 列表。
+     *
+     * @param status 操作结果
+     * @param successCount 成功条数
+     * @param successIds 本次成功新建的数据 ID，其他批量接口不返回
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record BatchResultPayload(
+            String status,
+            @JsonProperty("success_count") JsonNode successCount,
+            @JsonProperty("success_ids") @Nullable List<String> successIds
+    ) {
+        /** 避免缺失计数默认为零，或小数被反序列化截断；不比较成功条数与请求条数。 */
+        private BatchResultPayload {
+            ValidationUtils.requireTrue("success".equals(status), "response status must be success");
+            ValidationUtils.requireTrue(successCount != null && successCount.isIntegralNumber()
+                            && successCount.canConvertToInt(),
+                    "response success_count must be an integer representable as int");
+        }
     }
 }

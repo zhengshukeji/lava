@@ -20,6 +20,7 @@ import com.zhengshuyun.lava.core.lang.ValidationUtils;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +38,39 @@ public final class JiandaoyunDataUtils {
     /** 禁止实例化数据包装工具。 */
     private JiandaoyunDataUtils() {
         throw new UnsupportedOperationException("Utility class");
+    }
+
+    /**
+     * 复制数据中的 Map 和 List，固定请求内容并保留 null；其他值按原值保存。
+     *
+     * @param data 待复制的映射
+     * @param <K> 映射键类型
+     * @return 嵌套 Map 和 List 均不可修改的副本
+     */
+    public static <K> Map<K, @Nullable Object> immutableCopy(Map<K, ?> data) {
+        ValidationUtils.requireNonNull(data, "data must not be null");
+        Map<K, @Nullable Object> copy = new LinkedHashMap<>();
+        data.forEach((key, value) -> copy.put(key, copyValue(value)));
+        return Collections.unmodifiableMap(copy);
+    }
+
+    /**
+     * 递归复制 JSON 集合，避免调用方复用子表单行或列表时改变已经构建的请求。
+     *
+     * @param value 原始值
+     * @return 集合副本或原始标量值
+     */
+    private static @Nullable Object copyValue(@Nullable Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return immutableCopy(map);
+        }
+        if (value instanceof List<?> list) {
+            List<@Nullable Object> copy = new ArrayList<>(list.size());
+            list.forEach(item -> copy.add(copyValue(item)));
+            // List.copyOf 不允许 null，不能用于表达清空意图的数据。
+            return Collections.unmodifiableList(copy);
+        }
+        return value;
     }
 
     /**

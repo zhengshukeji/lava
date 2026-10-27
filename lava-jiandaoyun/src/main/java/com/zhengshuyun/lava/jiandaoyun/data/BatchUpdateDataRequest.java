@@ -17,11 +17,10 @@
 package com.zhengshuyun.lava.jiandaoyun.data;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
+import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunDataUtils;
 import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunValidationUtils;
 import org.jspecify.annotations.Nullable;
 
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -171,7 +170,7 @@ public final class BatchUpdateDataRequest {
          */
         public Builder data(Map<String, ?> value) {
             ValidationUtils.requireNonNull(value, "data must not be null");
-            data = Collections.unmodifiableMap(new LinkedHashMap<>(value));
+            data = JiandaoyunDataUtils.immutableCopy(value);
             return this;
         }
 

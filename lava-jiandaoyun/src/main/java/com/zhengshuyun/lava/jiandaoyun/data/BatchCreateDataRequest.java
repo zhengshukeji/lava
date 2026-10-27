@@ -17,12 +17,12 @@
 package com.zhengshuyun.lava.jiandaoyun.data;
 
 import com.zhengshuyun.lava.core.lang.ValidationUtils;
+import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunDataUtils;
 import com.zhengshuyun.lava.jiandaoyun.internal.JiandaoyunValidationUtils;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -174,8 +174,8 @@ public final class BatchCreateDataRequest {
         public Builder dataList(List<? extends Map<String, ?>> value) {
             ValidationUtils.requireNonNull(value, "dataList must not be null");
             List<Map<String, @Nullable Object>> copy = new ArrayList<>(value.size());
-            value.forEach(data -> copy.add(Collections.unmodifiableMap(new LinkedHashMap<>(
-                    ValidationUtils.requireNonNull(data, "dataList must not contain null")))));
+            value.forEach(data -> copy.add(JiandaoyunDataUtils.immutableCopy(
+                    ValidationUtils.requireNonNull(data, "dataList must not contain null"))));
             dataList = Collections.unmodifiableList(copy);
             return this;
         }

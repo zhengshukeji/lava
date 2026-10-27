@@ -135,7 +135,7 @@ public final class JiandaoyunTransport implements AutoCloseable {
      */
     public <T> T post(URI uri, Object requestBody, Class<T> responseType) {
         JsonNode tree = send(uri, requestBody);
-        if (tree == null) {
+        if (tree == null || tree.isNull()) {
             throw new JiandaoyunProtocolException("简道云成功响应缺少正文");
         }
         try {
